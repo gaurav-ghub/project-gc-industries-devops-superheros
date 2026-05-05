@@ -12,40 +12,56 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout repo
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # 2️⃣ 🔥 FORCE WORK ON MAIN 
+      - name: Checkout main branch
+        run: |
+          git fetch origin
+          git checkout main
+          git pull origin main
+
+      # 3️⃣ Set image tag
       - name: Set image tag
         run: |
           echo "TAG=v1-${GITHUB_SHA::7}" >> $GITHUB_ENV
 
+      # 4️⃣ Update Helm values
       - name: Update Helm values
         run: |
           yq -i '.services.frontend.tag = env(TAG)' \
             gc-industries-devops-superheros/helm/superheros/values.yaml
 
+      # 5️⃣ Create branch
       - name: Create branch
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git checkout -b frontend-change-${TAG}
 
+      # 6️⃣ Commit changes
       - name: Commit changes
         run: |
           git add .
-          git commit -m "chore(cd): update frontend image ${TAG}"
+          git commit -m "chore(cd): update frontend image ${TAG}" || echo "No changes to commit"
 
+      # 7️⃣ Push branch
       - name: Push branch
         run: |
           git push origin frontend-change-${TAG}
 
+      # 8️⃣ Create PR (FIXED)
       - name: Create PR
         uses: peter-evans/create-pull-request@v5
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           branch: frontend-change-${{ env.TAG }}
+          base: main
           title: "Update frontend image to ${{ env.TAG }}"
           body: |
-            Auto-generated PR from CI pipeline.
+            Auto-generated PR from CD pipeline.
             🔍 Awaiting Kyverno validation
