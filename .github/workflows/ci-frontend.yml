@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - gc-industries-devops-superheros/services/frontend/**
+      - gc-industries-devops-superheros/superhero-app-code/frontend/**
       - gc-industries-devops-superheros/helm/**
       - gc-industries-devops-superheros/infra/**
 
