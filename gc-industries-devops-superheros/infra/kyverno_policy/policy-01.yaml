@@ -1,3 +1,7 @@
+## This Kyverno policy enforces that all Pods in the "superheros" namespace must have CPU and memory requests and limits defined. 
+## It excludes Pods in the "kube-system", "istio-system", and "kyverno" namespaces from this requirement. 
+## The policy will be enforced, meaning that any Pod that does not meet these criteria will be rejected when created or updated.
+
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -30,3 +34,4 @@ spec:
                   limits:
                     cpu: "?*"
                     memory: "?*"
+
