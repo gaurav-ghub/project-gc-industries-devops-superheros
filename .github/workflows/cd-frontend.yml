@@ -30,7 +30,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git checkout -b update-frontend-${TAG}
+          git checkout -b frontend-change-${TAG}
 
       - name: Commit changes
         run: |
@@ -39,12 +39,12 @@ jobs:
 
       - name: Push branch
         run: |
-          git push origin update-frontend-${TAG}
+          git push origin frontend-change-${TAG}
 
       - name: Create PR
         uses: peter-evans/create-pull-request@v5
         with:
-          branch: update-frontend-${{ env.TAG }}
+          branch: frontend-change-${{ env.TAG }}
           title: "Update frontend image to ${{ env.TAG }}"
           body: |
             Auto-generated PR from CI pipeline.
