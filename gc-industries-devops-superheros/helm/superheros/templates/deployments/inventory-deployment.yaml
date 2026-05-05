@@ -14,12 +14,24 @@ spec:
         app: inventory
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
       containers:
         - name: inventory
           image: {{ .Values.image.registry }}/{{ .Values.services.inventory.image }}:{{ .Values.services.inventory.tag }}
           imagePullPolicy: Always
           ports:
             - containerPort: 8083
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
           readinessProbe:
             httpGet:
               path: /health
@@ -32,3 +44,4 @@ spec:
               port: 8083
             initialDelaySeconds: 20
             periodSeconds: 10
+          

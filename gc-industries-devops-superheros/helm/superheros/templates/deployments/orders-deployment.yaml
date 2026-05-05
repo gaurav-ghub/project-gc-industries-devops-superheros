@@ -14,12 +14,17 @@ spec:
         app: orders
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
       containers:
         - name: orders
           image: {{ .Values.image.registry }}/{{ .Values.services.orders.image }}:{{ .Values.services.orders.tag }}
           imagePullPolicy: Always
           ports:
             - containerPort: 8082
+          securityContext:
+            allowPrivilegeEscalation: false
           env:
             - name: CATALOG_URL
               value: "http://catalog:8081"
@@ -39,3 +44,10 @@ spec:
               port: 8082
             initialDelaySeconds: 20
             periodSeconds: 10
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "250m"
+              memory: "128Mi"

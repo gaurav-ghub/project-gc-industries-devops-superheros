@@ -15,12 +15,24 @@ spec:
         app: catalog
         version: v2
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
       containers:
       - name: catalog
         image: "{{ .Values.image.registry }}/{{ (index .Values.services.catalog.versions 1).name }}:{{ (index .Values.services.catalog.versions 1).tag }}"
         imagePullPolicy: Always
         ports:
         - containerPort: 8081
+        securityContext:
+          allowPrivilegeEscalation: false
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "250m"
+            memory: "128Mi"
         env:
           - name: CATALOG_VERSION
             value: "v2"

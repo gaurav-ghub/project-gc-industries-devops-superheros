@@ -14,12 +14,17 @@ spec:
         app: frontend
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
       containers:
         - name: frontend
           image: {{ .Values.image.registry }}/{{ .Values.services.frontend.image }}:{{ .Values.services.frontend.tag }}
           imagePullPolicy: Always
           ports:
             - containerPort: 80
+          securityContext:
+            allowPrivilegeEscalation: false
           env:
             - name: VITE_PAYMENT_API
               value: "http://payment:8084"
@@ -35,3 +40,10 @@ spec:
               port: 80
             initialDelaySeconds: 20
             periodSeconds: 10
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "250m"
+              memory: "128Mi"

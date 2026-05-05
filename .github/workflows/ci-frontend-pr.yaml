@@ -1,0 +1,21 @@
+name: CI - Frontend (PR)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - gc-industries-devops-superheros/services/frontend/**
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          cd gc-industries-devops-superheros/services/frontend
+          docker build -t test-frontend .
