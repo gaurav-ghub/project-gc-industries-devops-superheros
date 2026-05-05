@@ -38,7 +38,7 @@ RUN chown -R 101:101 /usr/share/nginx/html \
 # Switch back to non-root
 USER 101
 
-EXPOSE 8080
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
 
