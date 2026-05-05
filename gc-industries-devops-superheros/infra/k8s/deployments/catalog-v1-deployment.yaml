@@ -15,15 +15,27 @@ spec:
         app: catalog
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
       containers:
         - name: catalog
-          image: dockergc00/superheros-catalog:v1
+          image: docker.io/dockergc00/superheros-catalog:v1
           imagePullPolicy: Always
           ports:
             - containerPort: 8081
+          securityContext:
+            allowPrivilegeEscalation: false
           env:
             - name: CATALOG_VERSION
               value: "v1"
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
           readinessProbe:
             httpGet:
               path: /health

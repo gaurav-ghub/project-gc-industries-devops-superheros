@@ -1,0 +1,30 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-resourcequota
+spec:
+  rules:
+    - name: create-resourcequota
+      match:
+        resources:
+          kinds:
+            - Namespace
+      exclude:
+        resources:
+          namespaces:
+            - kube-system
+            - istio-system
+            - kyverno
+      generate:
+        apiVersion: v1   
+        kind: ResourceQuota
+        name: namespace-quota
+        namespace: "{{request.object.metadata.name}}"
+        synchronize: true
+        data:
+          spec:
+            hard:
+              requests.cpu: "10"
+              requests.memory: "10Gi"
+              limits.cpu: "20"
+              limits.memory: "20Gi"

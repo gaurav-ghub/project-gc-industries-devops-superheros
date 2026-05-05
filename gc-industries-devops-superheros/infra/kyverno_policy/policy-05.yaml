@@ -1,0 +1,27 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: validate-registries
+      match:
+        resources:
+          namespaces:
+          - superheros
+          kinds:
+            - Pod
+      exclude:
+        resources:
+          namespaces:
+            - kube-system
+            - istio-system
+            - kyverno
+      validate:
+        message: "Images must come from approved registries (docker.io only)"
+        pattern:
+          spec:
+            containers:
+              - image: "docker.io/*"
+              #- image: "aws_account_id.dkr.ecr.region.amazonaws.com/*"

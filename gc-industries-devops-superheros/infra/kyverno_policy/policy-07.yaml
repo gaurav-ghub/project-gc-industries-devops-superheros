@@ -1,0 +1,25 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-replica-range
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: validate-replicas
+      match:
+        resources:
+          namespaces:
+          - superheros
+          kinds:
+            - Deployment
+      exclude:
+        resources:
+          namespaces:
+            - kube-system
+            - istio-system
+            - kyverno
+      validate:
+        message: "Replicas must not be more than 1"
+        pattern:
+          spec:
+            replicas: ">=1 & <=1"

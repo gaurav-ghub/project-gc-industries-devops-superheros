@@ -14,12 +14,17 @@ spec:
         app: orders
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
       containers:
         - name: orders
-          image: dockergc00/superheros-orders:v1
+          image: docker.io/dockergc00/superheros-orders:v1
           imagePullPolicy: Always
           ports:
             - containerPort: 8082
+          securityContext:
+            allowPrivilegeEscalation: false
           env:
             - name: CATALOG_URL
               value: "http://catalog:8081"
@@ -27,6 +32,13 @@ spec:
               value: "http://inventory:8083"
             - name: PAYMENT_URL
               value: "http://payment:8084"
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
           readinessProbe:
             httpGet:
               path: /health

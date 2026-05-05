@@ -14,12 +14,17 @@ spec:
         app: inventory
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
       containers:
         - name: inventory
-          image: dockergc00/superheros-inventory:v1
+          image: docker.io/dockergc00/superheros-inventory:v1
           imagePullPolicy: Always
           ports:
             - containerPort: 8083
+          securityContext:
+            allowPrivilegeEscalation: false
           readinessProbe:
             httpGet:
               path: /health
@@ -32,3 +37,10 @@ spec:
               port: 8083
             initialDelaySeconds: 20
             periodSeconds: 10
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "250m"
+              memory: "128Mi"

@@ -1,0 +1,29 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-security-context
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-security-context
+      match:
+        resources:
+          namespaces:
+          - superheros
+          kinds:
+            - Pod
+      exclude:
+        resources:
+          namespaces:
+            - kube-system
+            - istio-system
+            - kyverno
+      validate:
+        message: "Containers must run as non-root and not allow privilege escalation"
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+            containers:
+              - securityContext:
+                  allowPrivilegeEscalation: false

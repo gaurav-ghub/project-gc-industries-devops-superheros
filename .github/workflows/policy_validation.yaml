@@ -1,0 +1,67 @@
+name: Policy Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install Kyverno CLI
+        run: |
+          KYVERNO_VERSION=v1.11.0
+          curl -LO https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz
+          tar -xvf kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz
+          sudo mv kyverno /usr/local/bin/
+          kyverno version
+
+      - name: Validate Kubernetes manifests against policies
+        run: |
+          echo "🔍 Running Kyverno policy validation..."
+          echo "----------------------------------------"
+
+          # Run silently and store output
+          kyverno apply kyverno_policy \
+            --resource manifests/deployment.yaml \
+            --resource manifests/namespace.yaml \
+            --policy-report > kyverno-report.txt || true
+
+          echo ""
+          echo "📊 ===== SUMMARY ====="
+          echo ""
+
+          echo "Result Counts:"
+          grep "result:" kyverno-report.txt | sort | uniq -c || true
+
+          echo ""
+          echo "❌ FAILED RULES:"
+          grep -B 2 -A 3 "result: fail" kyverno-report.txt || echo "No failures 🎉"
+
+          echo ""
+          echo "✅ PASSED RULES:"
+          grep -B 2 -A 2 "result: pass" kyverno-report.txt || echo "No passes found"
+
+          echo ""
+          echo "----------------------------------------"
+
+      - name: Fail if policy violations found
+        run: |
+          if grep -q "result: fail" kyverno-report.txt; then
+            echo "❌ Policy violations detected. Failing pipeline."
+            exit 1
+          else
+            echo "✅ All policies passed successfully."
+          fi
+
+      - name: Upload Kyverno Report (Artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyverno-policy-report
+          path: kyverno-report.txt
