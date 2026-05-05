@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - gc-industries-devops-superheros/services/frontend/**
+      - gc-industries-devops-superheros/helm/**
+      - gc-industries-devops-superheros/infra/**
 
 jobs:
   build-and-push:
