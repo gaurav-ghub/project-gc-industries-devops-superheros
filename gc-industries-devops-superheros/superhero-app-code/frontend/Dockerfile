@@ -29,8 +29,11 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Copy nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Fix permissions (VERY IMPORTANT)
-RUN chown -R 101:101 /usr/share/nginx/html
+# FIX PERMISSIONS FOR NGINX RUNTIME DIRS
+RUN chown -R 101:101 /usr/share/nginx/html \
+    && chown -R 101:101 /var/cache/nginx \
+    && chown -R 101:101 /var/run \
+    && chown -R 101:101 /etc/nginx
 
 # Switch back to non-root
 USER 101
