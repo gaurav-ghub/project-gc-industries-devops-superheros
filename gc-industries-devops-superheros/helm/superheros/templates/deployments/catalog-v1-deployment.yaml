@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Values.namespace.name }}
 spec:
   replicas: {{ (index .Values.services.catalog.versions 0).replicas | default 1 }}
+  revisionHistoryLimit: 2
   selector:
     matchLabels:
       app: catalog
