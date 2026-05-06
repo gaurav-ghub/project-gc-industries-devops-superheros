@@ -24,16 +24,13 @@ jobs:
 
       - name: Set image tag
         run: |
-          echo "TAG=v1-${{ github.event.workflow_run.head_sha }}" >> $GITHUB_ENV
+          echo "TAG=v1-${GITHUB_SHA::7}" >> $GITHUB_ENV
 
       - name: Update Helm values
         run: |
           yq -i '.services.frontend.tag = env(TAG)' \
             gc-industries-devops-superheros/helm/superheros/values.yaml
 
-      - name: Debug values.yaml
-        run: |
-          cat gc-industries-devops-superheros/helm/superheros/values.yaml
 
       - name: Commit & push
         run: |
