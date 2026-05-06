@@ -5,7 +5,8 @@ on:
     branches:
       - main
     paths:
-      - gc-industries-devops-superheros/services/orders/**
+      - gc-industries-devops-superheros/superhero-app-code/orders/**
+      - gc-industries-devops-superheros/helm/**
 
 jobs:
   build:
@@ -17,5 +18,4 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          cd gc-industries-devops-superheros/services/orders
-          docker build -t test-orders .
+          docker build -t test-orders gc-industries-devops-superheros/superhero-app-code/orders
