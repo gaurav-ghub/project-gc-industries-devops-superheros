@@ -17,6 +17,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Checkout main
+        run: |
+          git checkout main
+          git pull origin main
+
       - name: Set image tag
         run: |
           echo "TAG=v1-${GITHUB_SHA::7}" >> $GITHUB_ENV
@@ -26,26 +31,11 @@ jobs:
           yq -i '.services.orders.tag = env(TAG)' \
             gc-industries-devops-superheros/helm/superheros/values.yaml
 
-      - name: Create branch
+
+      - name: Commit & push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git checkout -b update-orders-${TAG}
-
-      - name: Commit changes
-        run: |
           git add .
-          git commit -m "chore(cd): update orders image ${TAG}"
-
-      - name: Push branch
-        run: |
-          git push origin update-orders-${TAG}
-
-      - name: Create PR
-        uses: peter-evans/create-pull-request@v5
-        with:
-          branch: update-orders-${{ env.TAG }}
-          title: "Update orders image to ${{ env.TAG }}"
-          body: |
-            Auto-generated PR from CI pipeline.
-            🔍 Awaiting Kyverno validation
+          git commit -m "chore(cd): update orders image ${TAG}" || echo "No changes"
+          git push origin main
