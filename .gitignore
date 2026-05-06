@@ -70,6 +70,5 @@ charts/*/output/
 # Backup files
 *~
 
-# Ignore txt files
-*.txt
+
 

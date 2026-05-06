@@ -1,0 +1,405 @@
+Phase - DOCKER COMPOSE
+---------------------------
+start/launch docker desktop
+from root of the project repo where docker-compose.yml file is present, run
+docker compose up --build
+access the app on -
+http://localhost:8080
+docker compose down
+
+
+
+
+
+
+
+
+
+Phase - KIND CLUSTER
+----------------------------
+
+
+CREATE KIND CLUSTER
+---------------------------
+from root of the project repo where kind-config.yaml file is present, run below command to create a kind cluster
+kind create cluster --name superheros --config kind-config.yaml
+kubectl get nodes
+
+
+
+
+
+
+
+BUILD IMAGES
+-----------------
+docker build -t dockergc00/frontend:local .
+docker build -t dockergc00/catalog:local .
+docker build -t dockergc00/orders:local .
+docker build -t dockergc00/inventory:local .
+docker build -t dockergc00/payment:local .
+
+
+
+TAG IMAGES
+------------------
+docker tag dockergc00/frontend:local dockergc00/superheros-frontend:v1
+docker tag dockergc00/orders:local dockergc00/superheros-orders:v1
+docker tag dockergc00/inventory:local dockergc00/superheros-inventory:v1
+docker tag dockergc00/payment:local dockergc00/superheros-payment:v1
+docker tag dockergc00/catalog:local dockergc00/superheros-catalog:v1
+docker tag dockergc00/catalog:local dockergc00/superheros-catalog:v2
+docker tag dockergc00/catalog:local dockergc00/superheros-catalog:v3
+
+
+
+LOGIN TO DOCKERHUB AND PUSH IMAGES
+-----------------------------
+docker login
+
+
+docker push dockergc00/superheros-frontend:v1
+docker push dockergc00/superheros-orders:v1
+docker push dockergc00/superheros-inventory:v1
+docker push dockergc00/superheros-payment:v1
+docker push dockergc00/superheros-catalog:v1
+docker push dockergc00/superheros-catalog:v2
+docker push dockergc00/superheros-catalog:v3
+
+
+
+
+CHANGE DIRECTORY AND RUN MANIFESTS
+-------------------------------------------
+gaura@Gaurav MINGW64 ~/OneDrive/Documents/My-DevOps-Projects/project-gc-industries-devops-superheros
+$ cd gc-industries-devops-superheros/
+
+kubectl apply -f infra/k8s/namespaces/namespace.yaml
+kubectl apply -f infra/k8s/deployments/
+kubectl apply -f infra/k8s/services/
+kubectl get all -n superheros
+kubectl get pods -n superheros
+
+
+INSTALL ISTIO
+----------------
+istioctl install --set profile=demo -y
+kubectl apply -f istio-addons/
+kubectl get pods -n istio-system
+
+ADD BELOW LABEL TO YOUR APPLICATION's NAMESPACE SO ISTIO CAN INJECT SIDE CARS INTO YOUR APPLICATION PODS CONTAINERS
+----------------------------------------------------------------------------------------------
+kubectl label namespace superheros istio-injection=enabled
+kubectl get namespace superheros --show-labels
+
+
+RUN ISTIO
+-------------------------
+
+kubectl apply -f infra/k8s/istio/gateway.yaml
+kubectl apply -f infra/k8s/istio/catalog-destinationrule.yaml
+kubectl apply -f infra/k8s/istio/virtualservice.yaml
+
+
+kubectl get gateway -n superheros
+kubectl get virtualservice -n superheros
+kubectl get destinationrule -n superheros
+
+Very important to run rollout command because Istio sidecar (istio-proxy) is injected ONLY at pod creation time.
+It is NOT injected retroactively. I deployed my application pods first, then installed istio so i must run rollout command.
+If i run istio first and then deploy my app pods then rollout command may not be required but there is no harm in running rollout command anyway.
+
+
+kubectl rollout restart deployment -n superheros
+
+kubectl get pods -n superheros
+kubectl get svc -n istio-system
+
+
+
+
+
+
+
+
+
+PORT FORWARDING
+-------------------------------
+to access APPLICATION
+kubectl port-forward -n istio-system svc/istio-ingressgateway 8080:80
+
+to access kiali on http://localhost:20001
+kubectl port-forward svc/kiali -n istio-system 20001:20001
+
+
+
+
+to access prometheus and Grafana Port-forward manually
+kubectl -n istio-system port-forward svc/prometheus 9090:9090
+kubectl -n istio-system port-forward svc/grafana 3000:3000
+
+
+Prometheus → http://localhost:9090
+
+Grafana → http://localhost:3000
+
+
+ARGOCD
+------------
+Create ArgoCD namespace
+kubectl create namespace argocd
+
+Install ArgoCD (official manifest)
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+
+Verify pods, wait for all pods to be ready before doing port forwarding
+kubectl get pods -n argocd
+
+
+Port-forward ArgoCD server
+kubectl port-forward svc/argocd-server -n argocd 8085:443
+
+
+Access ArgoCD on-
+https://localhost:8085
+
+
+Get admin password
+kubectl get secret argocd-initial-admin-secret \
+  -n argocd \
+  -o jsonpath="{.data.password}" | base64 -d
+
+
+Login:
+
+Username: admin
+Password: (from command)
+
+
+
+Create ArgoCD Application (PROD)
+kubectl apply -f infra/argocd/superheros-app-no-helm.yaml
+kubectl apply -f infra/argocd/superheros-app.yaml
+
+
+
+Test Helm Locally (VERY IMPORTANT)
+helm template superheros ./helm/superheros
+
+
+
+
+Next Phase-AWS EKS CLUSTER
+-----------------------
+
+eksctl create cluster \
+  --name superheros-eks \
+  --version 1.30 \
+  --region ap-southeast-1 \
+  --nodegroup-name superheros-nodegroup \
+  --nodes 2 \
+  --nodes-min 2 \
+  --nodes-max 4 \
+  --node-type c7i-flex.large \
+  --managed
+
+
+Confirm cluster creation (eksctl)
+----------------------------------
+eksctl get cluster --region ap-southeast-1
+
+
+Update kubeconfig (connect kubectl to EKS)
+---------------------------------------------
+aws eks update-kubeconfig \
+  --name superheros-eks \
+  --region ap-southeast-1
+
+
+
+Verify kubectl is pointing to EKS (critical)
+-----------------------------------------------
+kubectl config current-context
+
+
+Check cluster access
+----------------------------
+kubectl get nodes
+kubectl get namespaces
+kubectl get pods -n kube-system
+
+
+
+CREATE NAMESPACE FOR YOUR APPLICATION
+--------------------------------------
+kubectl create namespace superheros
+
+
+
+
+Image are already built, tagged and pushed in above KIND CLUSTER phase. So we can skip those steps but if we run again that is also fine.
+
+BUILD IMAGES
+-----------------
+docker build -t dockergc00/frontend:local .
+docker build -t dockergc00/catalog:local .
+docker build -t dockergc00/orders:local .
+docker build -t dockergc00/inventory:local .
+docker build -t dockergc00/payment:local .
+
+
+
+TAG IMAGES
+------------------
+docker tag dockergc00/frontend:local dockergc00/superheros-frontend:v1
+docker tag dockergc00/catalog:local dockergc00/superheros-catalog:v1
+docker tag dockergc00/orders:local dockergc00/superheros-orders:v1
+docker tag dockergc00/inventory:local dockergc00/superheros-inventory:v1
+docker tag dockergc00/payment:local dockergc00/superheros-payment:v1
+
+
+LOGIN TO DOCKERHUB AND PUSH IMAGES
+-----------------------------
+docker login
+
+
+docker push dockergc00/superheros-frontend:v1
+docker push dockergc00/superheros-catalog:v1
+docker push dockergc00/superheros-orders:v1
+docker push dockergc00/superheros-inventory:v1
+docker push dockergc00/superheros-payment:v1
+
+
+CHANGE DIRECTORY AND RUN MANIFESTS
+-------------------------------------------
+gaura@Gaurav MINGW64 ~/OneDrive/Documents/My-DevOps-Projects/project-gc-industries-devops-superheros
+$ cd gc-industries-devops-superheros/
+
+kubectl apply -f infra/k8s/namespaces/namespace.yaml
+kubectl apply -f infra/k8s/deployments/
+kubectl apply -f infra/k8s/services/
+kubectl get pods -n superheros
+
+
+
+INSTALL ISTIO
+----------------
+istioctl install --set profile=demo -y
+kubectl apply -f istio-addons/
+kubectl get pods -n istio-system
+
+ADD BELOW LABEL TO YOUR APPLICATION's NAMESPACE SO ISTIO CAN INJECT SIDE CARS INTO YOUR APPLICATION PODS CONTAINERS
+----------------------------------------------------------------------------------------------
+kubectl label namespace superheros istio-injection=enabled
+kubectl get namespace superheros --show-labels
+
+
+RUN ISTIO
+-------------------------
+
+kubectl apply -f infra/k8s/istio/gateway.yaml
+kubectl apply -f infra/k8s/istio/catalog-destinationrule.yaml
+kubectl apply -f infra/k8s/istio/virtualservice.yaml
+
+
+kubectl get gateway -n superheros
+kubectl get virtualservice -n superheros
+kubectl get destinationrule -n superheros
+
+
+Very important to run rollout command because Istio sidecar (istio-proxy) is injected ONLY at pod creation time.
+It is NOT injected retroactively. I deployed my application pods first, then installed istio so i must run rollout command.
+If i run istio first and then deploy my app pods then rollout command may not be required but there is no harm in running rollout command anyway.
+
+
+kubectl rollout restart deployment -n superheros
+
+kubectl get pods -n superheros
+kubectl get svc -n istio-system
+
+
+
+Access the APPLICATION
+----------------------------
+access the application on istio-ingressgateway   LoadBalancer for example-
+istio-ingressgateway   LoadBalancer   a674ae43011c344f4b8926338e0b176d-1581002011.ap-southeast-1.elb.amazonaws.com
+
+
+To access kiali dashboard do PORT FORWARDING and access on http://localhost:20001
+-------------------------------
+kubectl port-forward svc/kiali -n istio-system 20001:20001
+
+
+
+
+ARGOCD
+------------
+Create ArgoCD namespace
+kubectl create namespace argocd
+
+Install ArgoCD (official manifest)
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+
+Verify pods
+kubectl get pods -n argocd
+
+
+Port-forward ArgoCD server
+kubectl port-forward svc/argocd-server -n argocd 8085:443
+
+
+Access ArgoCD on-
+https://localhost:8085
+
+
+Get admin password
+kubectl get secret argocd-initial-admin-secret \
+  -n argocd \
+  -o jsonpath="{.data.password}" | base64 -d
+
+
+Login:
+
+Username: admin
+Password: (from command)
+
+
+
+Create ArgoCD Application (PROD)
+kubectl apply -f infra/argocd/superheros-app.yaml
+
+
+
+
+
+
+
+
+
+Delete AWS EKS CLUSTER
+--------------------------
+
+eksctl delete cluster \
+  --name superheros-eks \
+  --region ap-southeast-1
+
+------------------------------------
+
+
+
+
+
+Important Git Commands
+Always use this before you start work or before pushing
+
+git commit -m "feat: frontend update"
+
+git push -u origin feature/frontend-change
+
+gh pr create --base main --head feature/frontend-change --title "Frontend changes" --body "Updated frontend and testing kyverno policy validation"
+
+git pull --rebase origin main

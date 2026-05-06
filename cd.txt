@@ -1,0 +1,51 @@
+name: CD - Sync K8s/Helm Manifests
+
+on:
+	push:
+		branches:
+			- main
+		paths:
+			- gc-industries-devops-superheros/infra/**
+			- gc-industries-devops-superheros/helm/**
+			- gc-industries-devops-superheros/services/**/Dockerfile
+			- .github/workflows/cd.yaml
+
+jobs:
+	sync-manifests:
+		runs-on: ubuntu-latest
+		defaults:
+			run:
+				working-directory: gc-industries-devops-superheros
+		steps:
+			- name: Checkout source code
+				uses: actions/checkout@v4
+
+			- name: Set short Git SHA
+				run: echo "SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+			- name: Install kubectl & helm
+				uses: azure/setup-kubectl@v3
+			- run: |
+					curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+			- name: Lint Helm chart
+				run: helm lint helm/superheros
+
+			- name: Validate K8s manifests
+				run: |
+					kubectl kustomize infra/k8s | kubectl apply --dry-run=client -f -
+
+			# Optionally update image tags in values.yaml (if needed)
+			# - name: Update image tags in Helm values
+			#   run: |
+			#     # Example: yq e -i '.services.catalog.versions[0].tag = env.SHA' helm/superheros/values.yaml
+
+			- name: Commit & push manifest changes
+				run: |
+					git config --global user.name "github-actions"
+					git config --global user.email "github-actions@github.com"
+					git add infra/k8s helm/superheros/values.yaml
+					git diff --cached --quiet || git commit -m "CD: update manifests for ${{ env.SHA }} [skip ci]"
+					git push
+
+			# ArgoCD will auto-sync the Application (see infra/argocd/superheros-app.yaml)
