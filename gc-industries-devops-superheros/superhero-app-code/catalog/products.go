@@ -105,7 +105,7 @@ func getProducts(version string) []Product {
 				Name:   "SpiderMan - Youngest yet Talented Ansible Prodigy",
 				Image:  "/images/SpiderMan_Ansible.jpg",
 				Price:  6500000,
-				Rating: 4.9,
+				Rating: 4.5,
 			},
 		}
 	}
