@@ -21,14 +21,31 @@ jobs:
         run: |
           echo "TAG=v1-${GITHUB_SHA::7}" >> $GITHUB_ENV
 
-      - name: Update Helm values (orders)
+      - name: Update Helm values
         run: |
           yq -i '.services.orders.tag = env(TAG)' \
             gc-industries-devops-superheros/helm/superheros/values.yaml
 
-      - name: Commit & push Helm change
+      - name: Create branch
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git commit -am "chore(cd): update orders image ${TAG}"
-          git push
+          git checkout -b update-orders-${TAG}
+
+      - name: Commit changes
+        run: |
+          git add .
+          git commit -m "chore(cd): update orders image ${TAG}"
+
+      - name: Push branch
+        run: |
+          git push origin update-orders-${TAG}
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v5
+        with:
+          branch: update-orders-${{ env.TAG }}
+          title: "Update orders image to ${{ env.TAG }}"
+          body: |
+            Auto-generated PR from CI pipeline.
+            🔍 Awaiting Kyverno validation

@@ -1,0 +1,21 @@
+name: CI - Orders (PR)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - gc-industries-devops-superheros/services/orders/**
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          cd gc-industries-devops-superheros/services/orders
+          docker build -t test-orders .
