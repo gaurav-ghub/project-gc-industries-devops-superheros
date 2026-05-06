@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Copy requirement files
-COPY requirements.txt .
+COPY requirements.txt /inventory/requirements.txt
+WORKDIR /inventory
 
 # Build wheels
 RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
