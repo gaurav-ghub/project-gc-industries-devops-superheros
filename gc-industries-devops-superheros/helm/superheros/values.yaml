@@ -34,7 +34,7 @@ services:
   orders:
     enabled: true
     image: superheros-orders
-    tag: v1-933eb00
+    tag: v1-645d92f
     port: 8082
   payment:
     enabled: true
