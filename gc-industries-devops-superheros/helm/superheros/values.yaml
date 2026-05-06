@@ -15,15 +15,15 @@ services:
     port: 8081
     versions:
       - name: superheros-catalog
-        tag: v1-52bb341
+        tag: v1-614f82b
         replicas: 1
         trafficWeight: 40
       - name: superheros-catalog
-        tag: v2-52bb341
+        tag: v2-614f82b
         replicas: 1
         trafficWeight: 30
       - name: superheros-catalog
-        tag: v3-52bb341
+        tag: v3-614f82b
         replicas: 1
         trafficWeight: 30
   inventory:
