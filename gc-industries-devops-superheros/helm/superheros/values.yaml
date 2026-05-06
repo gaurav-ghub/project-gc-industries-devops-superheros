@@ -29,7 +29,7 @@ services:
   inventory:
     enabled: true
     image: superheros-inventory
-    tag: v1-f34b8a7
+    tag: v1-b11ca3b
     port: 8083
   orders:
     enabled: true
