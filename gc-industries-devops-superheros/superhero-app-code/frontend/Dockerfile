@@ -16,7 +16,7 @@ RUN npm run build
 # --- Runtime Stage ---
 
 # its important to use an unprivileged nginx image to avoid running as root. 
-# This is a security best practice and also allows us to run nginx on a non-privileged port (like 8080) without needing root permissions.
+# This is a security best practice and also allows us to run nginx on a non-privileged port (like 80) without needing root permissions.
 # If we dont use this, my Kyverno policies will complain about running as root and using privileged ports.
 FROM nginxinc/nginx-unprivileged:1.25-alpine
 
@@ -29,11 +29,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Copy nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# FIX PERMISSIONS FOR NGINX RUNTIME DIRS
-RUN chown -R 101:101 /usr/share/nginx/html \
-    && chown -R 101:101 /var/cache/nginx \
-    && chown -R 101:101 /var/run \
-    && chown -R 101:101 /etc/nginx
+# Fix permissions (VERY IMPORTANT)
+RUN chown -R 101:101 /usr/share/nginx/html
 
 # Switch back to non-root
 USER 101
@@ -41,7 +38,6 @@ USER 101
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
-
 
 
 
