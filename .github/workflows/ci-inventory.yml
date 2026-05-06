@@ -1,19 +1,17 @@
-name: CI - Inventory 
+name: CI - Inventory
 
 on:
   push:
     branches:
       - main
     paths:
-      - gc-industries-devops-superheros/services/inventory/**
+      - gc-industries-devops-superheros/superhero-app-code/inventory/**
+      - gc-industries-devops-superheros/helm/**
+      - gc-industries-devops-superheros/infra/**
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: gc-industries-devops-superheros
 
     steps:
       - name: Checkout source
@@ -30,5 +28,5 @@ jobs:
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-inventory
           TAG=v1-${GITHUB_SHA::7}
 
-          docker build -t $IMAGE:$TAG services/inventory
+          docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/inventory
           docker push $IMAGE:$TAG

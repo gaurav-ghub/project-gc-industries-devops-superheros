@@ -1,0 +1,21 @@
+name: CI - Inventory (PR)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - gc-industries-devops-superheros/superhero-app-code/inventory/**
+      - gc-industries-devops-superheros/helm/**
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -t test-inventory gc-industries-devops-superheros/superhero-app-code/inventory
