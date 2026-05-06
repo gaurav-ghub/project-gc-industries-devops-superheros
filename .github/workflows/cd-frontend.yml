@@ -28,7 +28,7 @@ jobs:
       # 3️⃣ Set image tag
       - name: Set image tag
         run: |
-          echo "TAG=v1-${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "TAG=v1-${{ github.event.workflow_run.head_sha }}" >> $GITHUB_ENV
 
       # 4️⃣ Update Helm values
       - name: Update Helm values
