@@ -5,15 +5,13 @@ on:
     branches:
       - main
     paths:
-      - gc-industries-devops-superheros/services/catalog/**
+      - gc-industries-devops-superheros/superhero-app-code/catalog/**
+      - gc-industries-devops-superheros/helm/**
+      - gc-industries-devops-superheros/infra/**
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: gc-industries-devops-superheros
 
     steps:
       - name: Checkout source
@@ -29,19 +27,19 @@ jobs:
         run: |
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog
           TAG=v1-${GITHUB_SHA::7}
-          docker build -t $IMAGE:$TAG services/catalog
+          docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/catalog
           docker push $IMAGE:$TAG
 
       - name: Build & Push Catalog v2
         run: |
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog
           TAG=v2-${GITHUB_SHA::7}
-          docker build -t $IMAGE:$TAG services/catalog
+          docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/catalog
           docker push $IMAGE:$TAG
 
       - name: Build & Push Catalog v3
         run: |
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog
           TAG=v3-${GITHUB_SHA::7}
-          docker build -t $IMAGE:$TAG services/catalog
+          docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/catalog
           docker push $IMAGE:$TAG
