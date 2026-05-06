@@ -14,33 +14,12 @@ spec:
         app: frontend
         version: v1
     spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 101
-        runAsGroup: 101
-        fsGroup: 101
-      volumeMounts:
-        - name: nginx-cache
-          mountPath: /var/cache/nginx
-        - name: nginx-run
-          mountPath: /var/run
-        - name: tmp
-          mountPath: /tmp
-      volumes:
-        - name: nginx-cache
-          emptyDir: {}
-        - name: nginx-run
-          emptyDir: {}
-        - name: tmp
-          emptyDir: {}
       containers:
         - name: frontend
           image: {{ .Values.image.registry }}/{{ .Values.services.frontend.image }}:{{ .Values.services.frontend.tag }}
           imagePullPolicy: Always
           ports:
             - containerPort: 80
-          securityContext:
-            allowPrivilegeEscalation: false
           env:
             - name: VITE_PAYMENT_API
               value: "http://payment:8084"
