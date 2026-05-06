@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: superheros-prod
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+    targetRevision: main
+    path: gc-industries-devops-superheros/infra/k8s
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: superheros
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

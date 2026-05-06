@@ -17,18 +17,25 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Checkout main
+        run: |
+          git checkout main
+          git pull origin main
+
       - name: Set image tag
         run: |
           echo "TAG=v1-${GITHUB_SHA::7}" >> $GITHUB_ENV
 
-      - name: Update Helm values (inventory)
+      - name: Update Helm values
         run: |
           yq -i '.services.inventory.tag = env(TAG)' \
             gc-industries-devops-superheros/helm/superheros/values.yaml
 
-      - name: Commit & push Helm change
+
+      - name: Commit & push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git commit -am "chore(cd): update inventory image ${TAG}"
-          git push
+          git add .
+          git commit -m "chore(cd): update inventory image ${TAG}" || echo "No changes"
+          git push origin main
