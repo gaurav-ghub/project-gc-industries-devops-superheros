@@ -24,5 +24,3 @@ app.listen(PORT, () =>
 );
 
 
-// test comment for pipeline
-// another test comment for pipeline
