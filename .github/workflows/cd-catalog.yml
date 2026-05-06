@@ -20,6 +20,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Checkout main
+        run: |
+          git checkout main
+          git pull origin main
+
       - name: Set image tag
         run: |
           echo "TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
