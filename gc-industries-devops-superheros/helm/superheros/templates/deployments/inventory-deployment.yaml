@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Values.namespace.name }}
 spec:
   replicas: {{ .Values.services.inventory.replicas | default 1 }}
+  revisionHistoryLimit: 2
   selector:
     matchLabels:
       app: inventory

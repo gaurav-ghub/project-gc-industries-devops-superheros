@@ -10,7 +10,7 @@ export default function Layout({ children }) {
     <div className="app-root">
       <header className="topbar">
         <div className="topbar-inner">
-          <div className="brand">GC Industries — <span className="ver">SuperHeros DevOps Playground</span></div>
+          <div className="brand">GC Industries — <span className="ver">Shipping SuperHeros into the World of DevOps</span></div>
           <nav className="nav">
             <Link to="/" className={`nav-btn ${loc.pathname === '/' ? 'active' : ''}`}>🏡 Home</Link>
             <Link to="/catalog" className={`nav-btn ${loc.pathname.startsWith('/catalog') ? 'active' : ''}`}>📦 Catalog</Link>
@@ -26,7 +26,7 @@ export default function Layout({ children }) {
       </main>
 
       <footer className="footer">
-        <div>SuperHeros tested in fictional worlds, Ready to do jobs in real world. </div>
+        <div>SuperHeros tested in fictional worlds. Ready to save the day! </div>
       </footer>
     </div>
   );
