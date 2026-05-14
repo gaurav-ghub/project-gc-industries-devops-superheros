@@ -9,10 +9,24 @@ services:
     replicas: 1
     tag: v1-6f11a5d
     port: 80
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
   catalog:
     enabled: true
     image: superheros-catalog
     port: 8081
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
     versions:
       - name: superheros-catalog
         tag: v1-5c96824
@@ -31,13 +45,34 @@ services:
     image: superheros-inventory
     tag: v1-6f11a5d
     port: 8083
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
   orders:
     enabled: true
     image: superheros-orders
     tag: v1-02ee289
     port: 8082
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
   payment:
     enabled: true
     image: superheros-payment
     tag: v1-6f11a5d
     port: 8084
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"

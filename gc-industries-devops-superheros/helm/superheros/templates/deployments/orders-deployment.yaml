@@ -46,9 +46,5 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 10
           resources:
-            limits:
-              cpu: "500m"
-              memory: "256Mi"
-            requests:
-              cpu: "250m"
-              memory: "128Mi"
+             {{- toYaml .Values.services.orders.resources | nindent 12 }} 
+             
