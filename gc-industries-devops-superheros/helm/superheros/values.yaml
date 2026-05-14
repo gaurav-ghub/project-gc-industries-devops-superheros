@@ -39,5 +39,5 @@ services:
   payment:
     enabled: true
     image: superheros-payment
-    tag: v1-dcde15c
+    tag: v1-6f11a5d
     port: 8084
