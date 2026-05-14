@@ -6,8 +6,8 @@ on:
       - main
     paths:
       - gc-industries-devops-superheros/superhero-app-code/payment/**
-      - gc-industries-devops-superheros/helm/**
-      - gc-industries-devops-superheros/infra/**
+    #  - gc-industries-devops-superheros/helm/**
+    #  - gc-industries-devops-superheros/infra/**
 
 jobs:
   build-and-push:
