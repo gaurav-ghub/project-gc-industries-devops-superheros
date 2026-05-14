@@ -1,6 +1,0 @@
-appName: my-service
-image: nginx:latest
-replicaCount: 2
-
-service:
-  port: 80
