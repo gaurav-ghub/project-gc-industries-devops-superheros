@@ -2,6 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: payment-idp
+  namespace: argocd
 spec:
   project: default
 
@@ -9,6 +10,9 @@ spec:
     repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
     targetRevision: main
     path: idp/payment/helm
+    helm:
+      valueFiles:
+        - values.yaml
 
   destination:
     server: https://kubernetes.default.svc
@@ -18,6 +22,8 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
 
 
 ## test commit
