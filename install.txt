@@ -116,8 +116,20 @@ kubectl get pods -n superheros
 kubectl get svc -n istio-system
 
 
+INSTALL Kyverno
+----------------
+
+1. Add Helm repo
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm repo update
 
 
+2. Install Kyverno
+helm install kyverno kyverno/kyverno -n kyverno --create-namespace
+
+
+3. Verify
+kubectl get all -n kyverno
 
 
 
@@ -182,6 +194,7 @@ Password: (from command)
 Create ArgoCD Application (PROD)
 kubectl apply -f infra/argocd/superheros-app-no-helm.yaml
 kubectl apply -f infra/argocd/superheros-app.yaml
+kubectl apply -f infra/argocd/kyverno-argocd-app.yaml
 
 
 

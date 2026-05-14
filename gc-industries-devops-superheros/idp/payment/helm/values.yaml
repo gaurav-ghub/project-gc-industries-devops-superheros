@@ -1,0 +1,6 @@
+appName: payment
+image: myrepo/payment:v1
+replicaCount: 2
+
+service:
+  port: 80

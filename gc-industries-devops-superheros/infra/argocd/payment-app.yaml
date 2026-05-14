@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: payment-idp
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+    targetRevision: main
+    path: idp/payment/helm
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
