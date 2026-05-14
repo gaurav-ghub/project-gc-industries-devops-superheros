@@ -29,11 +29,11 @@ services:
         memory: "128Mi"
     versions:
       - name: superheros-catalog
-        tag: v1-5c96824
+        tag: v1-6f11a5d
         replicas: 1
         trafficWeight: 40
       - name: superheros-catalog
-        tag: v2-5c96824
+        tag: v2-6f11a5d
         replicas: 1
         trafficWeight: 30
       - name: superheros-catalog
