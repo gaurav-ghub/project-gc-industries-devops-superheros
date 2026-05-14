@@ -28,12 +28,7 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
         resources:
-          limits:
-            cpu: "500m"
-            memory: "256Mi"
-          requests:
-            cpu: "250m"
-            memory: "128Mi"
+          {{- toYaml .Values.services.catalog.resources | nindent 12 }}
         env:
           - name: CATALOG_VERSION
             value: "v2"

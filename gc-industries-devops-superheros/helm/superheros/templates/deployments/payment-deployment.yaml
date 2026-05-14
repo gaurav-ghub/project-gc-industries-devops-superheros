@@ -27,12 +27,7 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
           resources:
-            limits:
-              cpu: "500m"
-              memory: "256Mi"
-            requests:
-              cpu: "250m"
-              memory: "128Mi"
+              {{- toYaml .Values.services.payment.resources | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /health
