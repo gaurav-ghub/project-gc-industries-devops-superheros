@@ -3,27 +3,27 @@ kind: Application
 metadata:
   name: payment-idp
   namespace: argocd
+
 spec:
   project: default
 
   source:
     repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
     targetRevision: main
-    path: idp/payment/helm
+    path: gc-industries-devops-superheros/idp/payment/helm
+
     helm:
       valueFiles:
         - values.yaml
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: superheros
 
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+
     syncOptions:
       - CreateNamespace=true
-
-
-## test commit
