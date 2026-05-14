@@ -21,9 +21,9 @@ export default function HomePage() {
         <div className="home-tile home-center-tile">
           <h1>DevOps SuperHero Shop</h1>
           <p className="home-description">
-            Shop your SuperHeros today to build a strong DevOps Team.  
-            Our SuperHeros are best in class Platform Engineers, SREs, DevOps Engineers, and Cloud Engineers.
-            Specialized in building production-grade CI/CD pipelines, reusable Terraform modules, and automated cloud infrastructure using Docker, Kubernetes, Terraform, Ansible, Helm, Istio, Argo CD, GitHub Actions, Jenkins, and Python.
+            Build powerful platforms with DevOps SuperHeroes.
+            Our elite team of Kubernetes warriors, Terraform architects, CI/CD ninjas, and GitOps guardians help automate infrastructure, accelerate deployments, and protect production environments at scale.
+            Powered by Docker, Kubernetes, Kyverno, Terraform, Istio, Argo CD, GitHub Actions, Jenkins, and Python.
           </p>
 
           <div className="home-btn-row">
