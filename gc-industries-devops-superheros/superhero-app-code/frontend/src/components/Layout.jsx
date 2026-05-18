@@ -10,7 +10,7 @@ export default function Layout({ children }) {
     <div className="app-root">
       <header className="topbar">
         <div className="topbar-inner">
-          <div className="brand">GC Industries — <span className="ver">🤖🤖 Shipping SuperHeros 🤖🤖 </span></div>
+          <div className="brand">GC Industries — <span className="ver">🤖🤖 Shipping DevOps SuperHeros 🤖🤖 </span></div>
           {/* NEW SOCIAL ICONS */}
           <div className="social-icons">
       <a
