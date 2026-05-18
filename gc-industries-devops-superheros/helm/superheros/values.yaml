@@ -55,7 +55,7 @@ services:
   orders:
     enabled: true
     image: superheros-orders
-    tag: v1-02ee289
+    tag: v1-f34201a
     port: 8082
     resources:
       limits:
