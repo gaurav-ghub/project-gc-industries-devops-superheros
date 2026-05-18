@@ -409,6 +409,12 @@ eksctl delete cluster \
 Important Git Commands
 Always use this before you start work or before pushing
 
+git checkout feature/frontend-change
+
+git pull --rebase origin main
+
+git add .
+
 git commit -m "feat: frontend update"
 
 git push -u origin feature/frontend-change
@@ -416,3 +422,14 @@ git push -u origin feature/frontend-change
 gh pr create --base main --head feature/frontend-change --title "Frontend changes" --body "Updated frontend and testing kyverno policy validation"
 
 git pull --rebase origin main
+------------------------------
+
+then switch to main branch and run below Commands
+
+git checkout main
+
+git pull --rebase origin main
+
+------------------------------
+
+after this you can switch to any other feature brach you want and run similar git commands you ran for frontend feature branch above.
