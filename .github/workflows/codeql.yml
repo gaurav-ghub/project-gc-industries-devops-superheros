@@ -14,7 +14,7 @@ on:
 
 jobs:
   analyze:
-    name: Analyze
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
 
     permissions:
@@ -40,8 +40,34 @@ jobs:
         with:
           languages: ${{ matrix.language }}
 
+      # =========================
+      # Autobuild for non-C#
+      # =========================
       - name: Autobuild
+        if: matrix.language != 'csharp'
         uses: github/codeql-action/autobuild@v3
 
+      # =========================
+      # Manual build for C#
+      # =========================
+      - name: Setup .NET
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore .NET dependencies
+        if: matrix.language == 'csharp'
+        run: |
+          dotnet restore gc-industries-devops-superheros/superhero-app-code/payment/Payment/Payment.csproj
+
+      - name: Build .NET project
+        if: matrix.language == 'csharp'
+        run: |
+          dotnet build gc-industries-devops-superheros/superhero-app-code/payment/Payment/Payment.csproj --no-restore
+
+      # =========================
+      # Analyze
+      # =========================
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
