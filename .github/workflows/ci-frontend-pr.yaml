@@ -18,12 +18,13 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          docker build -t frontend:${GITHUB_SHA::7} gc-industries-devops-superheros/superhero-app-code/frontend
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          docker build -t frontend:$SHORT_SHA gc-industries-devops-superheros/superhero-app-code/frontend
 
       - name: Run Trivy Scan
         uses: aquasecurity/trivy-action@v0.2.0
         with:
-          image-ref: frontend:${GITHUB_SHA::7}
+          image-ref: frontend:${{ github.sha }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true # Ignore vulnerabilities that do not have a fix available
