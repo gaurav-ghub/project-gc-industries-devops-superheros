@@ -25,8 +25,9 @@ jobs:
 
       - name: Build & Push Frontend Image
         run: |
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-frontend
-          TAG=v1-${GITHUB_SHA::7}
+          TAG=v1-$SHORT_SHA
 
           docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/frontend
           docker push $IMAGE:$TAG
@@ -34,7 +35,7 @@ jobs:
       - name: Run Trivy Scan
         uses: aquasecurity/trivy-action@v0.2.0
         with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/superheros-frontend:v1-${ GITHUB_SHA::7 }
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/superheros-frontend:v1-${{ github.sha }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
