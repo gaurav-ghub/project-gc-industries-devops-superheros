@@ -10,7 +10,7 @@ export default function Layout({ children }) {
     <div className="app-root">
       <header className="topbar">
         <div className="topbar-inner">
-          <div className="brand">GC Industries — <span className="ver">Shipping SuperHeros into the World of DevOps</span></div>
+          <div className="brand">GC Industries — <span className="ver">Shipping SuperHeros into the World of DevOps 🚢 🤖</span></div>
           {/* NEW SOCIAL ICONS */}
           <div className="social-icons">
       <a
@@ -36,8 +36,8 @@ export default function Layout({ children }) {
       </a>
     </div>
           <nav className="nav">
-            <Link to="/" className={`nav-btn ${loc.pathname === '/' ? 'active' : ''}`}>🏡 Home</Link>
-            <Link to="/catalog" className={`nav-btn ${loc.pathname.startsWith('/catalog') ? 'active' : ''}`}>📦 Catalog</Link>
+            <Link to="/" className={`nav-btn ${loc.pathname === '/' ? 'active' : ''}`}> 🛖 Home</Link>
+            <Link to="/catalog" className={`nav-btn ${loc.pathname.startsWith('/catalog') ? 'active' : ''}`}> 🛒 Catalog</Link>
             <button className="theme-toggle" onClick={toggle}>
               {mode === "dark" ? "🌙 Dark" : "☀️ Light"}
             </button>
