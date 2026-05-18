@@ -55,7 +55,7 @@ services:
   orders:
     enabled: true
     image: superheros-orders
-    tag: v1-b80faac
+    tag: v1-df408cf
     port: 8082
     resources:
       limits:
