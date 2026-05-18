@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # Frontend - React
+  - package-ecosystem: "npm"
+    directory: "/gc-industries-devops-superheros/superhero-app-code/frontend"
+    schedule:
+      interval: "weekly"
+
+  # Orders - Node.js
+  - package-ecosystem: "npm"
+    directory: "/gc-industries-devops-superheros/superhero-app-code/orders"
+    schedule:
+      interval: "weekly"
+
+  # Inventory - Python FastAPI
+  - package-ecosystem: "pip"
+    directory: "/gc-industries-devops-superheros/superhero-app-code/inventory"
+    schedule:
+      interval: "weekly"
+
+  # Payment - .NET
+  - package-ecosystem: "nuget"
+    directory: "/gc-industries-devops-superheros/superhero-app-code/payment/Payment"
+    schedule:
+      interval: "weekly"
+
+  # Catalog - Go
+  - package-ecosystem: "gomod"
+    directory: "/gc-industries-devops-superheros/superhero-app-code/catalog"
+    schedule:
+      interval: "weekly"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
