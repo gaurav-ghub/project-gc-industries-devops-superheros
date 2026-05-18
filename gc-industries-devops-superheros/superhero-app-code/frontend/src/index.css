@@ -68,6 +68,28 @@ body{
   color:var(--btn-text); padding:10px 16px;border-radius:10px;text-decoration:none;font-weight:600;box-shadow: 0 6px 18px rgba(0,0,0,0.2);
   transition: transform .14s ease, opacity .14s;
 }
+
+.social-icons {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  margin-right: 20px;
+}
+
+.social-icons img {
+  width: 22px;
+  height: 22px;
+  filter: invert(1);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.social-icons img:hover {
+  transform: scale(1.15);
+  opacity: 0.8;
+}
+
+
 .nav-btn.active{ outline: 3px solid rgba(255,255,255,0.06) }
 .nav-btn:hover{ transform: translateY(-3px) }
 .theme-toggle{
