@@ -43,7 +43,7 @@ services:
   inventory:
     enabled: true
     image: superheros-inventory
-    tag: v1-6f11a5d
+    tag: v1-c82993b
     port: 8083
     resources:
       limits:
