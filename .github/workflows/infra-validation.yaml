@@ -1,0 +1,34 @@
+name: Infra Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'gc-industries-devops-superheros/infra/**'
+
+jobs:
+  validate-infra:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Validate Kubernetes YAML
+        run: |
+          find gc-industries-devops-superheros/infra \
+            \( -name "*.yaml" -o -name "*.yml" \) \
+            -exec echo "Validating {}" \;
+
+      - name: Install kubeconform
+        run: |
+          curl -LO https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform-linux-amd64.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Run kubeconform
+        run: |
+          find gc-industries-devops-superheros/infra \
+            -name "*.yaml" \
+            -exec kubeconform -strict {} \;

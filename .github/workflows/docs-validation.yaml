@@ -1,0 +1,22 @@
+name: Docs Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'gc-industries-devops-superheros/docs/**'
+      - '**/*.md'
+
+jobs:
+  markdown-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Run markdown lint
+        uses: avto-dev/markdown-lint@v1
+        with:
+          args: '**/*.md'

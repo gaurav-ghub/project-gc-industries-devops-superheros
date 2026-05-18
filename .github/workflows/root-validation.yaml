@@ -1,0 +1,26 @@
+name: Root Config Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'gc-industries-devops-superheros/docker-compose.yml'
+      - 'gc-industries-devops-superheros/kind-config.yaml'
+      - 'gc-industries-devops-superheros/*.txt'
+
+jobs:
+  validate-root-config:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Validate YAML files
+        run: |
+          docker compose -f gc-industries-devops-superheros/docker-compose.yml config
+
+      - name: Validate kind config exists
+        run: |
+          cat gc-industries-devops-superheros/kind-config.yaml
