@@ -6,8 +6,8 @@ on:
       - main
     paths:
       - gc-industries-devops-superheros/superhero-app-code/payment/**
-    #  - gc-industries-devops-superheros/helm/**
-    #  - gc-industries-devops-superheros/infra/**
+      #- gc-industries-devops-superheros/helm/**
+      #- gc-industries-devops-superheros/infra/**
 
 jobs:
   build-and-push:
@@ -25,8 +25,20 @@ jobs:
 
       - name: Build & Push Payment Image
         run: |
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-payment
-          TAG=v1-${GITHUB_SHA::7}
+          TAG=v1-$SHORT_SHA
 
           docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/payment
           docker push $IMAGE:$TAG
+
+      - name: Run Trivy Scan
+        uses: aquasecurity/trivy-action@v0.2.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/superheros-payment:v1-${{ env.SHORT_SHA }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'

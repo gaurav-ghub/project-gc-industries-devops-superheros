@@ -23,23 +23,58 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Set SHORT_SHA
+        run: |
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+
       - name: Build & Push Catalog v1
         run: |
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog
-          TAG=v1-${GITHUB_SHA::7}
+          TAG=v1-$SHORT_SHA
           docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/catalog
           docker push $IMAGE:$TAG
+
+      - name: Run Trivy Scan v1
+        uses: aquasecurity/trivy-action@v0.2.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog:v1-${{ env.SHORT_SHA }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
 
       - name: Build & Push Catalog v2
         run: |
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog
-          TAG=v2-${GITHUB_SHA::7}
+          TAG=v2-$SHORT_SHA
           docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/catalog
           docker push $IMAGE:$TAG
+
+      - name: Run Trivy Scan v2
+        uses: aquasecurity/trivy-action@v0.2.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog:v2-${{ env.SHORT_SHA }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
 
       - name: Build & Push Catalog v3
         run: |
           IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog
-          TAG=v3-${GITHUB_SHA::7}
+          TAG=v3-$SHORT_SHA
           docker build -t $IMAGE:$TAG gc-industries-devops-superheros/superhero-app-code/catalog
           docker push $IMAGE:$TAG
+
+      - name: Run Trivy Scan v3
+        uses: aquasecurity/trivy-action@v0.2.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/superheros-catalog:v3-${{ env.SHORT_SHA }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'

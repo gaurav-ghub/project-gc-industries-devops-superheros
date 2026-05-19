@@ -16,6 +16,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build Docker Image
+      - name: Set SHORT_SHA
         run: |
-          docker build -t test-catalog gc-industries-devops-superheros/superhero-app-code/catalog
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+
+      - name: Build Catalog v1
+        run: |
+          docker build -t catalog:v1-$SHORT_SHA gc-industries-devops-superheros/superhero-app-code/catalog
+
+      - name: Run Trivy Scan v1
+        uses: aquasecurity/trivy-action@v0.2.0
+        with:
+          image-ref: catalog:v1-${{ env.SHORT_SHA }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Build Catalog v2
+        run: |
+          docker build -t catalog:v2-$SHORT_SHA gc-industries-devops-superheros/superhero-app-code/catalog
+
+      - name: Run Trivy Scan v2
+        uses: aquasecurity/trivy-action@v0.2.0
+        with:
+          image-ref: catalog:v2-${{ env.SHORT_SHA }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Build Catalog v3
+        run: |
+          docker build -t catalog:v3-$SHORT_SHA gc-industries-devops-superheros/superhero-app-code/catalog
+
+      - name: Run Trivy Scan v3
+        uses: aquasecurity/trivy-action@v0.2.0
+        with:
+          image-ref: catalog:v3-${{ env.SHORT_SHA }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
