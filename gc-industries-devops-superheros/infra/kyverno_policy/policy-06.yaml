@@ -18,6 +18,8 @@ spec:
             - kube-system
             - istio-system
             - kyverno
+            - monitoring
+            - argocd
       validate:
         message: "Containers must run as non-root and not allow privilege escalation"
         pattern:

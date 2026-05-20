@@ -18,6 +18,8 @@ spec:
             - kube-system
             - istio-system
             - kyverno
+            - monitoring
+            - argocd
       validate:
         message: "Replicas must not be more than 1"
         pattern:
