@@ -1,0 +1,55 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+
+metadata:
+  name: slack-alerts
+  namespace: superheros
+
+spec:
+  route:
+    receiver: slack-notifications
+
+    groupBy:
+      - alertname
+      - namespace
+
+    groupWait: 10s
+    groupInterval: 30s
+    repeatInterval: 1h
+
+    matchers:
+      - name: severity
+        value: warning
+        matchType: "="
+
+      - name: team
+        value: platform
+        matchType: "="
+
+  receivers:
+    - name: slack-notifications
+
+      slackConfigs:
+        - apiURL:
+            name: alertmanager-slack-secret
+            key: slack_api_url
+
+          channel: "#platform-alerts"
+
+          sendResolved: true
+
+          title: "🚨 GC Industries Platform Alert"
+
+          text: |
+            *Alert:* {{ .CommonLabels.alertname }}
+
+            *Severity:* {{ .CommonLabels.severity }}
+
+            *Namespace:* {{ .CommonLabels.namespace }}
+
+            *Pod:* {{ .CommonLabels.pod }}
+
+            *Description:*
+            {{ .CommonAnnotations.description }}
+
+            *Status:* {{ .Status }}
