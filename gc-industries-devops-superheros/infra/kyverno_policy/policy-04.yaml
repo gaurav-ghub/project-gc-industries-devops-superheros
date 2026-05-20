@@ -17,6 +17,8 @@ spec:
             - kube-system
             - istio-system
             - kyverno
+            - monitoring
+            - argocd
       mutate:
         patchStrategicMerge:
           metadata:
