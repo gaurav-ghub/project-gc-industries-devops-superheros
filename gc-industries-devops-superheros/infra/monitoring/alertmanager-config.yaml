@@ -1,3 +1,6 @@
+# Alertmanager configuration for sending alerts to Slack
+# This configuration defines a route that matches alerts with severity "warning" and team "platform"
+
 apiVersion: monitoring.coreos.com/v1alpha1
 kind: AlertmanagerConfig
 
@@ -53,3 +56,5 @@ spec:
             {{ .CommonAnnotations.description }}
 
             *Status:* {{ .Status }}
+
+            

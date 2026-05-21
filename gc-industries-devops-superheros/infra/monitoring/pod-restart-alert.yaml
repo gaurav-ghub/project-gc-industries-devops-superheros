@@ -1,3 +1,6 @@
+# PrometheusRule configuration for alerting on pod restarts in the "superheros" namespace
+# This rule triggers an alert if any pod in the "superheros" namespace has restarted more than 0 times in the last 5 minutes
+
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 
