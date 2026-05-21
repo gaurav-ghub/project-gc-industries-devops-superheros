@@ -3,7 +3,7 @@ kind: PrometheusRule
 
 metadata:
   name: pod-restart-alerts
-  namespace: monitoring
+  namespace: superheros
   labels:
     release: monitoring
 
