@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo
+  namespace: monitoring
+
+data:
+  overrides.yaml: |
+    overrides:
+      {}
+
+  tempo.yaml: |
+    memberlist:
+      cluster_label: "tempo.monitoring"
+
+    multitenancy_enabled: false
+
+    usage_report:
+      reporting_enabled: true
+
+    compactor:
+      compaction:
+        block_retention: 24h
+
+    distributor:
+      receivers:
+        jaeger:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:14250
+            thrift_binary:
+              endpoint: 0.0.0.0:6832
+            thrift_compact:
+              endpoint: 0.0.0.0:6831
+            thrift_http:
+              endpoint: 0.0.0.0:14268
+
+        opencensus: null
+
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    ingester: {}
+
+    server:
+      http_listen_port: 3200
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+
+    querier: {}
+
+    query_frontend: {}
+
+    metrics_generator:
+      ring:
+        kvstore:
+          store: inmemory
+          prefix: tempo/metrics_generator
+
+      registry:
+        external_labels:
+          source: tempo
+          cluster: kind
+
+      storage:
+        path: /tmp/tempo/generator/wal
+
+        remote_write:
+        - url: http://monitoring-kube-prometheus-prometheus.monitoring:9090/api/v1/write
+
+      processor:
+        service_graphs:
+          wait: 10s
+          max_items: 10000
+          workers: 10
+
+        span_metrics:
+          dimensions:
+            - service.name
+            - operation
+            - span.kind
+            - status.code
+
+    overrides:
+      defaults:
+        metrics_generator:
+          processors:
+            - service-graphs
+            - span-metrics
