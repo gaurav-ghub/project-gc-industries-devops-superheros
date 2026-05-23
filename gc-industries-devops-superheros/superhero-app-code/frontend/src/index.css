@@ -514,31 +514,57 @@ body{
 
 
 /* ===============================
-   Catalog Runtime Metadata Bar
+   Catalog Runtime Metadata Bar (Enhanced)
    =============================== */
 
 .catalog-runtime-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 20px;
+  gap: 22px;
   align-items: center;
   justify-content: center;
-  margin: 18px auto 28px;
-  padding: 12px 18px;
+  margin: 22px auto 34px;
+  padding: 18px 32px;
   max-width: 1200px;
 
-  background: rgba(7, 123, 123, 0.08);
-  border: 1px solid rgba(0, 255, 255, 0.2);
-  border-radius: 12px;
+  background: linear-gradient(120deg, rgba(0, 212, 216, 0.10) 0%, rgba(6, 18, 25, 0.85) 100%);
+  border: 2px solid rgba(0, 245, 255, 0.22);
+  border-radius: 22px;
+  box-shadow: 0 8px 32px 0 rgba(0, 212, 216, 0.10), 0 2px 12px 0 rgba(0,0,0,0.18);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
 
-  font-size: 15px;
-  color: #fafafa;
+  font-size: 1.08rem;
+  color: #e6fcff;
+  letter-spacing: 0.01em;
+  font-weight: 500;
+  transition: box-shadow 0.25s, border 0.25s;
+}
+
+.catalog-runtime-bar:hover {
+  box-shadow: 0 12px 40px 0 rgba(0, 245, 255, 0.18), 0 4px 18px 0 rgba(0,0,0,0.22);
+  border-color: #00f5ff;
 }
 
 .catalog-runtime-bar span {
   white-space: nowrap;
+  padding: 0 2px;
 }
 
 .catalog-runtime-bar strong {
   color: #00f5ff;
+  text-shadow: 0 0 6px rgba(0,245,255,0.25);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.catalog-runtime-bar a {
+  color: #00eaff;
+  font-weight: 600;
+  text-decoration: underline dotted;
+  transition: color 0.2s;
+}
+.catalog-runtime-bar a:hover {
+  color: #00fff7;
+  text-decoration: underline wavy;
 }
