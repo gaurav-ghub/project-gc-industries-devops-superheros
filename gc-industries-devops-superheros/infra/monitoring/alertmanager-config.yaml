@@ -1,5 +1,4 @@
-# Alertmanager configuration for sending alerts to Slack
-# This configuration defines a route that matches alerts with severity "warning" and team "platform"
+# Alertmanager configuration for AI-powered alert routing
 
 apiVersion: monitoring.coreos.com/v1alpha1
 kind: AlertmanagerConfig
@@ -10,7 +9,7 @@ metadata:
 
 spec:
   route:
-    receiver: slack-notifications
+    receiver: ai-webhook
 
     groupBy:
       - alertname
@@ -30,31 +29,10 @@ spec:
         matchType: "="
 
   receivers:
-    - name: slack-notifications
+    - name: ai-webhook
 
-      slackConfigs:
-        - apiURL:
-            name: alertmanager-slack-secret
-            key: slack_api_url
-
-          channel: "#platform-alerts"
+      webhookConfigs:
+        - url: "http://superhero-ai-alertmanager.monitoring.svc.cluster.local:8000/alerts"
 
           sendResolved: true
-
-          title: "🚨 GC Industries Platform Alert"
-
-          text: |
-            *Alert:* {{ .CommonLabels.alertname }}
-
-            *Severity:* {{ .CommonLabels.severity }}
-
-            *Namespace:* {{ .CommonLabels.namespace }}
-
-            *Pod:* {{ .CommonLabels.pod }}
-
-            *Description:*
-            {{ .CommonAnnotations.description }}
-
-            *Status:* {{ .Status }}
-
-            
+          

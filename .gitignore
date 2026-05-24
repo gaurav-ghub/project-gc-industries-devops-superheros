@@ -70,5 +70,7 @@ charts/*/output/
 # Backup files
 *~
 
+#k8s secretsyaml files
+infra/k8s/secrets/*.yaml
 
 
