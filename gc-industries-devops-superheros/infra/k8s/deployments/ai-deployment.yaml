@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: superhero-ai-alertmanager
+  namespace: monitoring
+
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+
+  selector:
+    matchLabels:
+      app: superhero-ai-alertmanager
+
+  template:
+    metadata:
+      labels:
+        app: superhero-ai-alertmanager
+        version: v1
+
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      containers:
+      - name: superhero-ai-alertmanager
+        image: docker.io/dockergc00/superhero-ai-alertmanager:v2
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 8000
+
+        securityContext:
+          allowPrivilegeEscalation: false
+
+        env:
+        - name: SLACK_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: openai-secret
+              key: SLACK_WEBHOOK_URL
+
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secret
+              key: OPENAI_API_KEY
+
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
