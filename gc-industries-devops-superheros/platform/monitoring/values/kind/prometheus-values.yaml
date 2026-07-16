@@ -1,0 +1,11 @@
+grafana:
+  persistence:
+    enabled: false
+
+prometheus:
+  prometheusSpec:
+    replicas: 1
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1

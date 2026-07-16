@@ -4,20 +4,24 @@ set -euo pipefail
 
 ENVIRONMENT="${1:-kind}"
 
-echo "======================================="
-echo "GC Industries Monitoring Installer"
-echo "Environment : ${ENVIRONMENT}"
-echo "======================================="
+NAMESPACE="monitoring"
 
-case "${ENVIRONMENT}" in
-  kind)
-    echo "Installing monitoring stack for Kind..."
-    ;;
-  eks)
-    echo "Installing monitoring stack for Amazon EKS..."
-    ;;
-  *)
-    echo "Unsupported environment: ${ENVIRONMENT}"
-    exit 1
-    ;;
-esac
+echo "========================================"
+echo "GC Industries Monitoring Installer"
+echo "Environment: ${ENVIRONMENT}"
+echo "========================================"
+
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
+helm repo update
+
+helm upgrade --install monitoring \
+    prometheus-community/kube-prometheus-stack \
+    --namespace "${NAMESPACE}" \
+    --create-namespace \
+    --version 77.11.0 \
+    -f platform/monitoring/values/base/prometheus-values.yaml \
+    -f "platform/monitoring/values/${ENVIRONMENT}/prometheus-values.yaml"
+
+echo
+echo "Monitoring installation completed."

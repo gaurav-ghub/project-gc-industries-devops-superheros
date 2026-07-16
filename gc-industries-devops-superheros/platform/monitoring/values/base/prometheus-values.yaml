@@ -1,8 +1,41 @@
 grafana:
   enabled: true
 
+  adminPassword: admin
+
+  persistence:
+    enabled: false
+
+  service:
+    type: ClusterIP
+
 alertmanager:
   enabled: true
 
 prometheus:
+  enabled: true
+
+  prometheusSpec:
+
+    retention: 7d
+
+    scrapeInterval: 30s
+
+    evaluationInterval: 30s
+
+    storageSpec: {}
+
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
   enabled: true
