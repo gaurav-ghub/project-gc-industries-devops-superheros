@@ -1,0 +1,24 @@
+prometheus:
+  chart: kube-prometheus-stack
+  repository: prometheus-community
+  version: "77.11.0"
+
+grafana:
+  chart: grafana
+  repository: grafana
+  version: "9.4.0"
+
+loki:
+  chart: loki
+  repository: grafana
+  version: "6.43.0"
+
+tempo:
+  chart: tempo
+  repository: grafana
+  version: "1.24.4"
+
+kiali:
+  chart: kiali-server
+  repository: kiali
+  version: "2.16.0"
