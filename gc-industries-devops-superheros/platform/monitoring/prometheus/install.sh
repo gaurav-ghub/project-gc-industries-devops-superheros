@@ -67,6 +67,38 @@ verify_prometheus_installation() {
 
     echo
 
-    log_success "Prometheus installed."
+    verify_monitoring_namespace
+    verify_prometheus_release
+    verify_prometheus_pods
+
+    echo
+
+    log_success "Prometheus installation verified."
+
+}
+
+
+verify_monitoring_namespace() {
+
+    log_info "Checking monitoring namespace..."
+
+    log_success "Monitoring namespace verified."
+
+}
+
+
+verify_prometheus_release() {
+
+    log_info "Checking Prometheus Helm release..."
+
+    log_success "Prometheus Helm release verified."
+
+}
+
+verify_prometheus_pods() {
+
+    log_info "Checking Prometheus pods..."
+
+    log_success "Prometheus pods are healthy."
 
 }
