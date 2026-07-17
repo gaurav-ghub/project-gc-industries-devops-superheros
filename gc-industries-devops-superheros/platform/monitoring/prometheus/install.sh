@@ -41,15 +41,56 @@ perform_prometheus_installation() {
 
 }
 
+
+
 ensure_prometheus_repo() {
 
     log_info "Checking Prometheus Helm repository..."
 
     echo
 
-    log_success "Prometheus Helm repository is available."
+    if helm repo list | awk '{print $1}' | grep -qx "prometheus-community"; then
+
+        log_info "Prometheus Helm repository already exists."
+
+    else
+
+        log_info "Adding Prometheus Helm repository..."
+
+        if ! helm repo add prometheus-community \
+            https://prometheus-community.github.io/helm-charts; then
+
+            log_error "Failed to add Prometheus Helm repository."
+            exit 1
+
+        fi
+
+        log_success "Prometheus Helm repository added."
+
+    fi
+
+    echo
+
+    log_info "Updating Helm repositories..."
+
+    if ! helm repo update; then
+
+        log_error "Failed to update Helm repositories."
+        exit 1
+    fi
+
+    echo
+
+    helm repo list
+
+    echo
+
+    log_success "Prometheus Helm repository is ready."
 
 }
+
+
+
 
 install_prometheus_chart() {
 
