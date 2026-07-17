@@ -35,7 +35,11 @@ perform_prometheus_installation() {
 
     ensure_prometheus_repo
 
+    ensure_monitoring_namespace
+
     install_prometheus_chart
+
+    wait_for_prometheus
 
     verify_prometheus_installation
 
@@ -98,9 +102,48 @@ install_prometheus_chart() {
 
     echo
 
-    log_success "Prometheus installed."
+    if helm upgrade \
+        --install prometheus \
+        prometheus-community/kube-prometheus-stack \
+        --namespace monitoring \
+        --create-namespace \
+        --values "${SCRIPT_DIR}/../values/${PLATFORM_ENVIRONMENT}/prometheus-values.yaml"
+    then
+
+        echo
+
+        log_success "Prometheus installed."
+
+    else
+
+        log_error "Failed to install Prometheus."
+        exit 1
+
+    fi
 
 }
+
+
+wait_for_prometheus() {
+
+    log_info "Waiting for Prometheus components to become Ready..."
+
+    echo
+
+    kubectl rollout status \
+        deployment/prometheus-kube-prometheus-operator \
+        -n monitoring \
+        --timeout=300s
+
+    kubectl rollout status \
+        deployment/prometheus-grafana \
+        -n monitoring \
+        --timeout=300s
+
+    log_success "Prometheus components are Ready."
+
+}
+
 
 verify_prometheus_installation() {
 
@@ -108,9 +151,10 @@ verify_prometheus_installation() {
 
     echo
 
-    verify_monitoring_namespace
+    ensure_monitoring_namespace
     verify_prometheus_release
     verify_prometheus_pods
+    wait_for_prometheus
 
     echo
 
@@ -119,11 +163,25 @@ verify_prometheus_installation() {
 }
 
 
-verify_monitoring_namespace() {
+ensure_monitoring_namespace() {
 
-    log_info "Checking monitoring namespace..."
+    if kubectl get namespace monitoring >/dev/null 2>&1; then
 
-    log_success "Monitoring namespace verified."
+        log_info "Monitoring namespace already exists."
+
+        return
+
+    fi
+
+    log_info "Creating monitoring namespace..."
+
+    if ! kubectl create namespace monitoring; then
+
+        log_error "Failed to create monitoring namespace."
+        exit 1
+    fi
+
+    log_success "Monitoring namespace created."
 
 }
 
