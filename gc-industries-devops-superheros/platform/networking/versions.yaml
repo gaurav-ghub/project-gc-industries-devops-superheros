@@ -1,0 +1,15 @@
+###############################################################################
+# GC Industries Cloud Native Platform
+# Networking Component Versions
+#
+# This file contains the versions of all networking components managed
+# by the platform.
+#
+# Update versions here instead of modifying installation scripts.
+###############################################################################
+
+istio:
+  version: "1.28.0"
+
+kiali:
+  version: "2.17.0"

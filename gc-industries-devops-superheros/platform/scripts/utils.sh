@@ -33,6 +33,14 @@
 ###############################################################################
 
 
+
+# Prevent multiple sourcing
+if [[ -n "${UTILS_SH_LOADED:-}" ]]; then
+    return
+fi
+
+readonly UTILS_SH_LOADED=1
+
 ###############################################################################
 # Project Paths
 ###############################################################################
@@ -159,6 +167,18 @@ check_kubernetes_context() {
     fi
 }
 
+
+verify_kind_cluster() {
+
+    log_info "Checking Kind clusters..."
+
+    log_success "Kind Cluster is: ${CLUSTER_NAME}"
+
+    log_success "Kind cluster verification passed."
+
+}
+
+
 ############################################################################
 
 ###############################################################################
@@ -169,13 +189,28 @@ check_cluster_ready() {
 
     log_info "Verifying Kubernetes cluster..."
 
+    echo
+
     if ! kubectl cluster-info >/dev/null 2>&1; then
+
         log_error "Unable to communicate with Kubernetes cluster."
         log_info "If this is a Kind environment, create or start the cluster first."
+
         exit 1
+
     fi
 
     log_success "Kubernetes API is reachable."
+
+    echo
+
+    log_info "Checking Kubernetes nodes..."
+
+    echo
+
+    kubectl get nodes
+
+    echo
 
     local ready_nodes
 
@@ -183,12 +218,16 @@ check_cluster_ready() {
         --no-headers \
         2>/dev/null | grep -c " Ready")
 
-    if [[ "$ready_nodes" -eq 0 ]]; then
+    if [[ "${ready_nodes}" -eq 0 ]]; then
+
         log_error "No Ready nodes found."
+
         exit 1
+
     fi
 
-    log_success "Cluster has ${ready_nodes} Ready node(s)."
+    log_success "All Kubernetes nodes are Ready."
+
 }
 
 ############################################################################

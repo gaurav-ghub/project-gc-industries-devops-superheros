@@ -24,6 +24,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${SCRIPT_DIR}/utils.sh"
+source "${PROJECT_ROOT}/platform/networking/install.sh"
 
 cluster_exists() {
 
@@ -87,6 +88,10 @@ validate_cluster() {
 
     check_kubernetes_context "${KUBERNETES_CONTEXT}"
 
+    echo
+
+    verify_kind_cluster
+
     check_cluster_ready
 
     echo
@@ -122,6 +127,12 @@ main() {
     validate_local_environment
 
     bootstrap_cluster
+
+    echo
+
+    install_networking
+
+    echo
 
     log_success "Local platform bootstrap completed successfully."
 
