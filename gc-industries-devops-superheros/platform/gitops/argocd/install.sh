@@ -252,10 +252,93 @@ display_argocd_information() {
 
     echo
 
+    display_argocd_namespace
+
+    display_argocd_ui
+
+    display_argocd_credentials
+
+    display_argocd_useful_commands
+
     log_success "ArgoCD information displayed."
 
     echo
 
 }
 
+display_argocd_namespace() {
 
+    log_info "ArgoCD Namespace"
+
+    echo
+
+    kubectl get namespace argocd
+
+    echo
+
+}
+
+display_argocd_ui() {
+
+    log_info "ArgoCD UI"
+
+    echo
+
+    local argocd_server_url
+
+    argocd_server_url=$(kubectl get svc \
+        --namespace argocd \
+        argocd-server \
+        -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
+
+    log_info "ArgoCD Server URL: https://${argocd_server_url}"
+
+    echo
+}
+
+display_argocd_credentials() {
+
+    log_info "ArgoCD Credentials"
+
+    echo
+
+    local argocd_admin_password
+
+    argocd_admin_password=$(kubectl get secret \
+        --namespace argocd \
+        argocd-initial-admin-secret \
+        -o jsonpath="{.data.password}" | base64 --decode)
+
+    log_info "ArgoCD Admin Password: ${argocd_admin_password}"
+
+    echo
+
+}
+
+display_argocd_useful_commands() {
+
+    log_info "Useful ArgoCD Commands"
+
+    echo
+
+    echo "1. To login to ArgoCD CLI:"
+    echo "   argocd login <ARGOCD_SERVER_URL> --username admin --password <ARGOCD_ADMIN_PASSWORD>"
+
+    echo
+
+    echo "2. To view ArgoCD applications:"
+    echo "   argocd app list"
+
+    echo
+
+    echo "3. To sync an application:"
+    echo "   argocd app sync <APP_NAME>"
+
+    echo
+
+    echo "4. To view application details:"
+    echo "   argocd app get <APP_NAME>"
+
+    echo
+
+}
