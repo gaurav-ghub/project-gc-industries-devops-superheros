@@ -278,7 +278,7 @@ verify_prometheus_pods() {
 
 display_monitoring_information() {
 
-    log_info "Monitoring Information"
+    print_section "Monitoring Information"
 
     echo
 
@@ -298,13 +298,17 @@ display_monitoring_information() {
 
     echo
 
+    display_useful_commands
+
+    echo
+
     log_success "Monitoring information displayed."
 
 }
 
 display_monitoring_namespace() {
 
-    log_info "Monitoring Namespace"
+    print_subsection "Monitoring Namespace"
 
     echo
 
@@ -318,7 +322,7 @@ display_monitoring_namespace() {
 
 display_grafana_information() {
 
-    log_info "Grafana"
+    print_subsection "Grafana"
 
     echo
 
@@ -356,7 +360,7 @@ display_grafana_information() {
 
 display_prometheus_information() {
 
-    log_info "Prometheus"
+    print_subsection "Prometheus"
 
     echo
 
@@ -377,7 +381,7 @@ display_prometheus_information() {
 
 display_alertmanager_information() {
 
-    log_info "Alertmanager"
+    print_subsection "Alertmanager"
 
     echo
 
@@ -392,5 +396,40 @@ display_alertmanager_information() {
     echo
 
     log_success "Alertmanager information displayed."
+
+}
+
+display_useful_commands() {
+
+    print_subsection "Useful Commands"
+
+    echo
+
+    echo "View Monitoring Pods"
+    echo "kubectl get pods -n monitoring"
+
+    echo
+
+    echo "View Monitoring Services"
+    echo "kubectl get svc -n monitoring"
+
+    echo
+
+    echo "Grafana"
+    echo "kubectl port-forward svc/prometheus-grafana -n monitoring 3000:80"
+
+    echo
+
+    echo "Prometheus"
+    echo "kubectl port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090:9090"
+
+    echo
+
+    echo "Alertmanager"
+    echo "kubectl port-forward svc/prometheus-kube-prometheus-alertmanager -n monitoring 9093:9093"
+
+    echo
+
+    log_success "Useful commands displayed."
 
 }
