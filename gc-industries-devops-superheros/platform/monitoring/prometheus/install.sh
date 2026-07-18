@@ -30,6 +30,9 @@ prometheus_installed() {
 
 }
 
+###############################################################################
+# Installation
+###############################################################################
 
 perform_prometheus_installation() {
 
@@ -45,7 +48,9 @@ perform_prometheus_installation() {
 
 }
 
-
+###############################################################################
+# Helm Repository
+###############################################################################
 
 ensure_prometheus_repo() {
 
@@ -93,8 +98,37 @@ ensure_prometheus_repo() {
 
 }
 
+###############################################################################
+# Namespace
+###############################################################################
 
+ensure_monitoring_namespace() {
 
+    if kubectl get namespace monitoring >/dev/null 2>&1; then
+
+        log_info "Monitoring namespace already exists."
+
+        return
+
+    fi
+
+    log_info "Creating monitoring namespace..."
+
+    if ! kubectl create namespace monitoring; then
+
+        log_error "Failed to create monitoring namespace."
+
+        exit 1
+
+    fi
+
+    log_success "Monitoring namespace created."
+
+}
+
+###############################################################################
+# Install Chart
+###############################################################################
 
 install_prometheus_chart() {
 
@@ -117,12 +151,16 @@ install_prometheus_chart() {
     else
 
         log_error "Failed to install Prometheus."
+
         exit 1
 
     fi
 
 }
 
+###############################################################################
+# Wait
+###############################################################################
 
 wait_for_prometheus() {
 
@@ -140,10 +178,15 @@ wait_for_prometheus() {
         -n monitoring \
         --timeout=300s
 
+    echo
+
     log_success "Prometheus components are Ready."
 
 }
 
+###############################################################################
+# Verification
+###############################################################################
 
 verify_prometheus_installation() {
 
@@ -151,44 +194,65 @@ verify_prometheus_installation() {
 
     echo
 
-    ensure_monitoring_namespace
+    verify_monitoring_namespace
+
+    echo
+
     verify_prometheus_release
+
+    echo
+
     verify_prometheus_pods
+
+    echo
+
     wait_for_prometheus
 
     echo
+
+    display_monitoring_information
 
     log_success "Prometheus installation verified."
 
 }
 
+verify_monitoring_namespace() {
 
-ensure_monitoring_namespace() {
+    log_info "Checking monitoring namespace..."
 
-    if kubectl get namespace monitoring >/dev/null 2>&1; then
+    echo
 
-        log_info "Monitoring namespace already exists."
+    if ! kubectl get namespace monitoring; then
 
-        return
+        log_error "Monitoring namespace not found."
 
-    fi
-
-    log_info "Creating monitoring namespace..."
-
-    if ! kubectl create namespace monitoring; then
-
-        log_error "Failed to create monitoring namespace."
         exit 1
+
     fi
 
-    log_success "Monitoring namespace created."
+    echo
+
+    log_success "Monitoring namespace verified."
 
 }
-
 
 verify_prometheus_release() {
 
     log_info "Checking Prometheus Helm release..."
+
+    echo
+
+    if ! helm list \
+        --namespace monitoring \
+        --filter '^prometheus$'; then
+
+        log_error "Prometheus Helm release not found."
+
+        exit 1
+
+    fi
+
+    echo
 
     log_success "Prometheus Helm release verified."
 
@@ -198,6 +262,135 @@ verify_prometheus_pods() {
 
     log_info "Checking Prometheus pods..."
 
+    echo
+
+    kubectl get pods -n monitoring
+
+    echo
+
     log_success "Prometheus pods are healthy."
+
+}
+
+###############################################################################
+# Display Information
+###############################################################################
+
+display_monitoring_information() {
+
+    log_info "Monitoring Information"
+
+    echo
+
+    display_monitoring_namespace
+
+    echo
+
+    display_grafana_information
+
+    echo
+
+    display_prometheus_information
+
+    echo
+
+    display_alertmanager_information
+
+    echo
+
+    log_success "Monitoring information displayed."
+
+}
+
+display_monitoring_namespace() {
+
+    log_info "Monitoring Namespace"
+
+    echo
+
+    kubectl get namespace monitoring
+
+    echo
+
+    log_success "Monitoring namespace displayed."
+
+}
+
+display_grafana_information() {
+
+    log_info "Grafana"
+
+    echo
+
+    local password
+
+    password=$(kubectl get secret prometheus-grafana \
+        -n monitoring \
+        -o jsonpath="{.data.admin-password}" \
+        | base64 --decode)
+
+    echo "URL:"
+    echo "http://localhost:3000"
+
+    echo
+
+    echo "Username:"
+    echo "admin"
+
+    echo
+
+    echo "Password:"
+    echo "${password}"
+
+    echo
+
+    echo "Port Forward:"
+    echo "kubectl port-forward svc/prometheus-grafana -n monitoring 3000:80"
+
+    echo
+
+    log_success "Grafana information displayed."
+
+}
+
+
+display_prometheus_information() {
+
+    log_info "Prometheus"
+
+    echo
+
+    echo "URL:"
+    echo "http://localhost:9090"
+
+    echo
+
+    echo "Port Forward:"
+    echo "kubectl port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090:9090"
+
+    echo
+
+    log_success "Prometheus information displayed."
+
+}
+
+
+display_alertmanager_information() {
+
+    log_info "Alertmanager"
+
+    echo
+
+    echo "URL:"
+    echo "http://localhost:9093"
+
+    echo
+
+    echo "Port Forward:"
+    echo "kubectl port-forward svc/prometheus-kube-prometheus-alertmanager -n monitoring 9093:9093"
+
+    echo
+
+    log_success "Alertmanager information displayed."
 
 }
