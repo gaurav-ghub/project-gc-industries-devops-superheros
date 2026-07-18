@@ -13,6 +13,8 @@ install_argocd() {
 
     check_argocd_repository
 
+    create_argocd_namespace
+
     install_argocd_chart
 
     verify_argocd_installation
@@ -59,6 +61,31 @@ check_argocd_repository() {
 
 }
 
+
+create_argocd_namespace() {
+
+    log_info "Creating ArgoCD namespace..."
+
+    echo
+
+    if kubectl get namespace argocd >/dev/null 2>&1; then
+
+        log_info "ArgoCD namespace already exists."
+
+    else
+
+        kubectl create namespace argocd
+
+        log_success "ArgoCD namespace created."
+
+    fi
+
+    echo
+
+}
+
+
+
 install_argocd_chart() {
 
     log_info "Installing ArgoCD..."
@@ -79,3 +106,5 @@ verify_argocd_installation() {
     log_success "ArgoCD installation verified."
 
 }
+
+
