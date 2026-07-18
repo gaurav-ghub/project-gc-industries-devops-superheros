@@ -248,9 +248,7 @@ wait_for_argocd_components() {
 
 display_argocd_information() {
 
-    log_info "ArgoCD Information"
-
-    echo
+    print_section "ArgoCD Information"
 
     display_argocd_namespace
 
@@ -268,7 +266,7 @@ display_argocd_information() {
 
 display_argocd_namespace() {
 
-    log_info "ArgoCD Namespace"
+    print_subsection "ArgoCD Namespace"
 
     echo
 
@@ -276,40 +274,49 @@ display_argocd_namespace() {
 
     echo
 
+    log_success "ArgoCD namespace displayed."
+
+    echo
+
 }
 
 display_argocd_ui() {
 
-    log_info "ArgoCD UI"
+    print_subsection "ArgoCD UI"
 
     echo
 
-    local argocd_server_url
-
-    argocd_server_url=$(kubectl get svc \
-        --namespace argocd \
-        argocd-server \
-        -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
-
-    log_info "ArgoCD Server URL: https://${argocd_server_url}"
+    echo "URL:"
+    echo "https://localhost:8080"
 
     echo
+
+    echo "Port Forward:"
+    echo "kubectl port-forward svc/argocd-server -n argocd 8080:443"
+
+    echo
+
+    log_success "ArgoCD UI information displayed."
+
+    echo
+
 }
+
+
 
 display_argocd_credentials() {
 
-    log_info "ArgoCD Credentials"
+    print_subsection "ArgoCD Credentials"
 
     echo
 
-    local argocd_admin_password
+    echo "Username:admin"
+    echo "Password:${PASSWORD:-$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode)}"
 
-    argocd_admin_password=$(kubectl get secret \
-        --namespace argocd \
-        argocd-initial-admin-secret \
-        -o jsonpath="{.data.password}" | base64 --decode)
 
-    log_info "ArgoCD Admin Password: ${argocd_admin_password}"
+    echo
+
+    log_success "ArgoCD credentials displayed."
 
     echo
 
@@ -317,7 +324,7 @@ display_argocd_credentials() {
 
 display_argocd_useful_commands() {
 
-    log_info "Useful ArgoCD Commands"
+    print_subsection "Useful ArgoCD Commands"
 
     echo
 
