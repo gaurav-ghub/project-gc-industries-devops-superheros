@@ -2,9 +2,9 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GITOPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "${SCRIPT_DIR}/../../scripts/utils.sh"
+source "${GITOPS_DIR}/../../scripts/utils.sh"
 
 
 install_argocd() {
@@ -107,7 +107,7 @@ install_argocd_chart() {
         --install argocd \
         argo/argo-cd \
         --namespace argocd \
-        --values "${SCRIPT_DIR}/values.yaml"
+        --values "${GITOPS_DIR}/values.yaml"
     then
 
         echo

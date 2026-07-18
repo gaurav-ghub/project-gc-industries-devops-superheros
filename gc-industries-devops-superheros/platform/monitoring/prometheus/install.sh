@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MONITORING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "${SCRIPT_DIR}/../../scripts/utils.sh"
+source "${MONITORING_DIR}/../../scripts/utils.sh"
 
 install_prometheus() {
 
@@ -141,7 +141,7 @@ install_prometheus_chart() {
         prometheus-community/kube-prometheus-stack \
         --namespace monitoring \
         --create-namespace \
-        --values "${SCRIPT_DIR}/../values/${PLATFORM_ENVIRONMENT}/prometheus-values.yaml"
+        --values "${MONITORING_DIR}/../values/${PLATFORM_ENVIRONMENT}/prometheus-values.yaml"
     then
 
         echo
