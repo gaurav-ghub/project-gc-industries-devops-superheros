@@ -92,7 +92,35 @@ install_argocd_chart() {
 
     echo
 
-    log_success "ArgoCD installed."
+    if helm status argocd \
+        --namespace argocd >/dev/null 2>&1; then
+
+        log_warn "ArgoCD is already installed."
+
+        echo
+
+        return
+
+    fi
+
+    if helm upgrade \
+        --install argocd \
+        argo/argo-cd \
+        --namespace argocd \
+        --values "${SCRIPT_DIR}/values.yaml"
+    then
+
+        echo
+
+        log_success "ArgoCD components installed."
+
+    else
+
+        log_error "Failed to install ArgoCD."
+
+        exit 1
+
+    fi
 
 }
 
