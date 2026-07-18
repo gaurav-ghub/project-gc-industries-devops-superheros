@@ -35,12 +35,16 @@ source "${GITOPS_DIR}/verify.sh"
 
 install_gitops() {
 
-    log_info "Installing platform GitOps..."
+    log_info "Installing Platform GitOps..."
+
+    echo
 
     install_argocd
 
     log_success "Platform GitOps installed."
 
-}
+    echo
 
-install_gitops
+    display_gitops_summary
+
+}

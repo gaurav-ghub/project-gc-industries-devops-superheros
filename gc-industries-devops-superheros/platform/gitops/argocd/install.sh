@@ -135,9 +135,9 @@ verify_argocd_installation() {
 
     verify_argocd_release
 
-    verify_argocd_pods
-
     wait_for_argocd_components
+
+    verify_argocd_pods
 
     display_argocd_information
 
@@ -197,18 +197,23 @@ verify_argocd_pods() {
 
     echo
 
+    kubectl get pods -n argocd
+
+    echo
+
     if kubectl get pods \
-        --namespace argocd | grep -q "Running"; then
+        --namespace argocd \
+        --no-headers \
+        | grep -vq "Running"
+    then
 
-        log_success "ArgoCD pods are running."
-
-    else
-
-        log_error "ArgoCD pods are not running."
+        log_error "Some ArgoCD pods are not running."
 
         exit 1
 
     fi
+
+    log_success "ArgoCD pods are running."
 
     echo
 
@@ -252,11 +257,15 @@ display_argocd_information() {
 
     display_argocd_namespace
 
+    display_argocd_pods
+
     display_argocd_ui
 
     display_argocd_credentials
 
     display_argocd_useful_commands
+
+    display_gitops_summary
 
     log_success "ArgoCD information displayed."
 
@@ -279,6 +288,23 @@ display_argocd_namespace() {
     echo
 
 }
+
+display_argocd_pods() {
+
+    print_subsection "ArgoCD Pods"
+
+    echo
+
+    kubectl get pods -n argocd
+
+    echo
+
+    log_success "ArgoCD pods displayed."
+
+    echo
+
+}
+
 
 display_argocd_ui() {
 
@@ -324,27 +350,77 @@ display_argocd_credentials() {
 
 display_argocd_useful_commands() {
 
-    print_subsection "Useful ArgoCD Commands"
+    print_subsection "Useful Commands"
 
     echo
 
-    echo "1. To login to ArgoCD CLI:"
-    echo "   argocd login <ARGOCD_SERVER_URL> --username admin --password <ARGOCD_ADMIN_PASSWORD>"
+    echo "View ArgoCD Pods"
+    echo "kubectl get pods -n argocd"
 
     echo
 
-    echo "2. To view ArgoCD applications:"
-    echo "   argocd app list"
+    echo "View ArgoCD Services"
+    echo "kubectl get svc -n argocd"
 
     echo
 
-    echo "3. To sync an application:"
-    echo "   argocd app sync <APP_NAME>"
+    echo "View ArgoCD Applications"
+    echo "kubectl get applications -n argocd"
 
     echo
 
-    echo "4. To view application details:"
-    echo "   argocd app get <APP_NAME>"
+    echo "ArgoCD UI"
+    echo "kubectl port-forward svc/argocd-server -n argocd 8080:443"
+
+    echo
+
+    log_success "Useful commands displayed."
+
+    echo
+
+}
+
+display_gitops_summary() {
+
+    print_section "GitOps Summary"
+
+    echo "✓ ArgoCD Installed"
+
+    echo "✓ GitOps Control Plane Ready"
+
+    echo "✓ Git Repository Integration Ready"
+
+    echo "✓ Continuous Deployment Ready"
+
+    echo
+
+    echo "Status : READY ✅"
+
+    echo
+
+    echo "🎉 Welcome Onboard!"
+
+    echo
+
+    echo "Your platform is now ready to deploy applications"
+    echo "using GitOps with ArgoCD."
+
+    echo
+
+    echo "Next Steps"
+    echo "----------"
+
+    echo "• Access the ArgoCD Dashboard"
+
+    echo "• Login using the credentials above"
+
+    echo "• Register your Git repository"
+
+    echo "• Create your first ArgoCD Application"
+
+    echo
+
+    echo "Happy GitOps! 🚀"
 
     echo
 

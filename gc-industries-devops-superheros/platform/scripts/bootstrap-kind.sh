@@ -26,6 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/utils.sh"
 source "${PROJECT_ROOT}/platform/networking/install.sh"
 source "${PROJECT_ROOT}/platform/monitoring/install.sh"
+source "${PROJECT_ROOT}/platform/gitops/install.sh"
 
 cluster_exists() {
 
@@ -129,15 +130,11 @@ main() {
 
     bootstrap_cluster
 
-    echo
-
     install_networking
-
-    echo
 
     install_monitoring
 
-    echo
+    install_gitops
 
     log_success "Local platform bootstrap completed successfully."
 
