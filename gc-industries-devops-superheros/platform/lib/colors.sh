@@ -6,8 +6,8 @@
 #
 
 # Reset
-NC="${RESET}"
 RESET="\033[0m"
+
 
 # Standard Colors
 BLACK="\033[0;30m"
