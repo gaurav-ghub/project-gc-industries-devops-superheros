@@ -84,20 +84,18 @@ readonly UTILS_SH_LOADED=1
 
 readonly PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-
-
-
 ###############################################################################
-# Platform Configuration
+# Shared Platform Libraries
 ###############################################################################
 
-readonly PLATFORM_NAME="GC Industries Cloud Native Platform"
-readonly PLATFORM_VERSION="1.0.0"
-readonly PLATFORM_ENVIRONMENT="kind"
-readonly PLATFORM_CUSTOMER="SuperHeroes"
+readonly PLATFORM_ROOT="${PROJECT_ROOT}/platform"
 
-readonly CLUSTER_NAME="superheros"
-readonly KUBERNETES_CONTEXT="kind-${CLUSTER_NAME}"
+source "${PLATFORM_ROOT}/lib/colors.sh"
+source "${PLATFORM_ROOT}/lib/version.sh"
+source "${PLATFORM_ROOT}/lib/banner.sh"
+source "${PLATFORM_ROOT}/lib/logger.sh"
+
+
 
 readonly KIND_CONFIG="${PROJECT_ROOT}/kind-config.yaml"
 
@@ -122,18 +120,6 @@ print_banner() {
     echo
 }
 
-############################################################################
-
-
-###############################################################################
-# ANSI Color Codes
-###############################################################################
-
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly NC='\033[0m'
 
 ###############################################################################
 

@@ -225,19 +225,17 @@ wait_for_argocd_components() {
 
     echo
 
-    if kubectl wait \
+    if ! kubectl wait \
         --namespace argocd \
         --for=condition=Ready \
         pod \
-        --all \
+        -l app.kubernetes.io/instance=argocd \
         --timeout=300s
     then
 
-        echo
+        log_warn "Some ArgoCD pods did not reach Ready state within the timeout."
 
-        log_success "All ArgoCD components are Ready."
-
-    else
+        kubectl get pods -n argocd
 
         echo
 
@@ -246,6 +244,10 @@ wait_for_argocd_components() {
         exit 1
 
     fi
+
+    echo
+
+    log_success "All ArgoCD components are Ready."
 
     echo
 
@@ -425,3 +427,13 @@ display_gitops_summary() {
     echo
 
 }
+
+main() {
+
+    install_argocd
+
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

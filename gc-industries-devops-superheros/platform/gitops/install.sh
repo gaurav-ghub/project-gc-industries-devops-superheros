@@ -48,3 +48,13 @@ install_gitops() {
     display_gitops_summary
 
 }
+
+main() {
+
+    install_gitops
+
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
