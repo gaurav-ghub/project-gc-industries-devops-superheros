@@ -10,7 +10,7 @@ services:
       replicas: 1
     - name: catalog
       image: dockergc00/superheros-catalog
-      tag: v1-5f0fb1b
+      tag: v2-6f11a5d
       port: 8081
       replicas: 1
     - name: inventory

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"github.com/gc-ghub/launchpad/internal/spec"
@@ -108,7 +109,11 @@ func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]strin
 		return nil, err
 	}
 
-	var written []string
+	// 1 + 2. registry entry and chart values
+	written, err := writeAppFiles(dir, &app)
+	if err != nil {
+		return nil, err
+	}
 	write := func(name string, data []byte) error {
 		p := filepath.Join(dir, name)
 		if err := os.WriteFile(p, data, 0o644); err != nil {
@@ -116,34 +121,6 @@ func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]strin
 		}
 		written = append(written, p)
 		return nil
-	}
-
-	// Default tags so values are always renderable.
-	for i := range app.Services {
-		if app.Services[i].Tag == "" {
-			app.Services[i].Tag = "latest"
-		}
-	}
-
-	// 1. registry entry
-	reg, err := yaml.Marshal(app)
-	if err != nil {
-		return nil, err
-	}
-	if err := write("app.yaml", withHeader("LaunchPad registry entry — do not edit by hand; use `launchpad onboard`", reg)); err != nil {
-		return nil, err
-	}
-
-	// 2. chart values
-	vals, err := yaml.Marshal(chartValues{
-		App:      map[string]string{"name": app.Name},
-		Services: app.Services,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := write("values.yaml", withHeader("Values for charts/app — rendered by LaunchPad", vals)); err != nil {
-		return nil, err
 	}
 
 	// 3. ArgoCD Application
@@ -164,6 +141,103 @@ func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]strin
 	}
 
 	return written, nil
+}
+
+// writeAppFiles renders the two files derived purely from the app spec — the
+// registry entry and the chart values — into dir, defaulting empty tags first.
+// It deliberately does not touch application.yaml: that file describes *where
+// and how* the app is deployed, which onboarding owns and a release must not
+// disturb. Shared by Generate and SetServiceTag so the two can never drift.
+func writeAppFiles(dir string, app *spec.App) ([]string, error) {
+	for i := range app.Services {
+		if app.Services[i].Tag == "" {
+			app.Services[i].Tag = "latest"
+		}
+	}
+
+	reg, err := yaml.Marshal(app)
+	if err != nil {
+		return nil, err
+	}
+	vals, err := yaml.Marshal(chartValues{
+		App:      map[string]string{"name": app.Name},
+		Services: app.Services,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	files := []struct {
+		name string
+		data []byte
+	}{
+		{"app.yaml", withHeader("LaunchPad registry entry — do not edit by hand; use `launchpad onboard`", reg)},
+		{"values.yaml", withHeader("Values for charts/app — rendered by LaunchPad", vals)},
+	}
+	var written []string
+	for _, f := range files {
+		p := filepath.Join(dir, f.name)
+		if err := os.WriteFile(p, f.data, 0o644); err != nil {
+			return nil, err
+		}
+		written = append(written, p)
+	}
+	return written, nil
+}
+
+// Bump records what a release changed, so the caller can report it and decide
+// whether anything needs committing.
+type Bump struct {
+	App     spec.App // the application after the bump
+	Service string   // the service whose tag moved
+	OldTag  string   // tag before the bump
+	NewTag  string   // tag after the bump
+	Written []string // files rewritten (empty when NoOp)
+	NoOp    bool     // true when the service was already at NewTag
+}
+
+// SetServiceTag bumps exactly one service's image tag in a registered
+// application and rewrites the registry entry and chart values.
+//
+// This is the file half of `launchpad release`: one line changes, ArgoCD
+// notices, and only that service's Deployment rolls. The ArgoCD Application is
+// left untouched — a release changes *what image runs*, never where or how the
+// application is deployed.
+func SetServiceTag(root, appName, svcName, tag string) (Bump, error) {
+	var b Bump
+	if err := spec.ValidateTag(tag); err != nil {
+		return b, err
+	}
+	app, err := Load(root, appName)
+	if err != nil {
+		return b, fmt.Errorf("no registered app %q — run `launchpad list` to see what is registered", appName)
+	}
+	i := app.FindService(svcName)
+	if i < 0 {
+		return b, fmt.Errorf("app %q has no service %q — services are: %s",
+			appName, svcName, strings.Join(app.ServiceNames(), ", "))
+	}
+
+	b.Service, b.OldTag, b.NewTag = svcName, app.Services[i].Tag, tag
+	if b.OldTag == tag {
+		b.App, b.NoOp = app, true
+		return b, nil
+	}
+
+	app.Services[i].Tag = tag
+	// Validate the whole app, not just the tag: the registry entry on disk could
+	// have been hand-edited into an invalid state, and a release must not
+	// propagate that into the values file ArgoCD consumes.
+	if err := app.Validate(); err != nil {
+		return b, err
+	}
+
+	written, err := writeAppFiles(AppDir(root, appName), &app)
+	if err != nil {
+		return b, err
+	}
+	b.App, b.Written = app, written
+	return b, nil
 }
 
 func withHeader(comment string, body []byte) []byte {

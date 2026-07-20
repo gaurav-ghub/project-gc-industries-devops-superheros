@@ -13,13 +13,13 @@ import (
 
 // Semantic palette — deliberately small.
 var (
-	brand = lipgloss.Color("99")  // purple — the product
-	accent = lipgloss.Color("45") // cyan — headings / active
-	ok    = lipgloss.Color("42")  // green — success
-	warn  = lipgloss.Color("214") // yellow — warning
-	bad   = lipgloss.Color("196") // red — error
-	muted = lipgloss.Color("245") // gray — secondary
-	faint = lipgloss.Color("240") // dim — rules / hints
+	brand  = lipgloss.Color("99")  // purple — the product
+	accent = lipgloss.Color("45")  // cyan — headings / active
+	ok     = lipgloss.Color("42")  // green — success
+	warn   = lipgloss.Color("214") // yellow — warning
+	bad    = lipgloss.Color("196") // red — error
+	muted  = lipgloss.Color("245") // gray — secondary
+	faint  = lipgloss.Color("240") // dim — rules / hints
 )
 
 var (

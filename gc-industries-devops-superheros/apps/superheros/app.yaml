@@ -1,7 +1,7 @@
 # LaunchPad registry entry — do not edit by hand; use `launchpad onboard`
 ---
 name: superheros
-namespace: superheros-lp
+namespace: superheros
 repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
 owner: gc-industries
 services:
@@ -12,7 +12,7 @@ services:
       replicas: 1
     - name: catalog
       image: dockergc00/superheros-catalog
-      tag: v1-5f0fb1b
+      tag: v2-6f11a5d
       port: 8081
       replicas: 1
     - name: inventory

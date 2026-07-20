@@ -13,6 +13,7 @@ import (
 	"github.com/gc-ghub/launchpad/internal/gitops"
 	"github.com/gc-ghub/launchpad/internal/render"
 	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/launchpad/internal/version"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,7 +30,7 @@ type Options struct {
 // skips the interactive form and loads the spec from a YAML file (used for
 // migration and automation); otherwise it prompts via huh.
 func Run(opts Options) error {
-	render.Banner("v0.1.0")
+	render.Banner(version.Current)
 	render.Section("Onboard an application")
 
 	if opts.From != "" {

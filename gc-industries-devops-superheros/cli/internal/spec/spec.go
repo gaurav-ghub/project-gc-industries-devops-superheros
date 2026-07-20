@@ -14,6 +14,23 @@ import (
 // dns1123 matches a Kubernetes-safe name (lowercase alphanumerics and '-').
 var dns1123 = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
+// dockerTag matches an OCI image tag: an alphanumeric or '_' first character,
+// then up to 127 more of alphanumerics, '.', '_' or '-'.
+var dockerTag = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$`)
+
+// ValidateTag reports whether tag is a usable OCI image tag. Release rejects a
+// malformed tag before touching any file, so a typo can never reach a commit
+// and become an ImagePullBackOff that ArgoCD faithfully reconciles.
+func ValidateTag(tag string) error {
+	if tag == "" {
+		return fmt.Errorf("tag is required")
+	}
+	if !dockerTag.MatchString(tag) {
+		return fmt.Errorf("tag %q is not a valid image tag (alphanumerics, '.', '_', '-'; max 128 chars)", tag)
+	}
+	return nil
+}
+
 // Service is one independently-deployable component of an application.
 type Service struct {
 	Name     string `yaml:"name"`
@@ -30,6 +47,27 @@ type App struct {
 	Repository string    `yaml:"repository"`
 	Owner      string    `yaml:"owner"`
 	Services   []Service `yaml:"services"`
+}
+
+// FindService returns the index of the named service, or -1 if the application
+// does not declare it.
+func (a App) FindService(name string) int {
+	for i, s := range a.Services {
+		if s.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// ServiceNames lists the service names in declaration order, for error messages
+// that tell a developer what they *could* have typed.
+func (a App) ServiceNames() []string {
+	names := make([]string, 0, len(a.Services))
+	for _, s := range a.Services {
+		names = append(names, s.Name)
+	}
+	return names
 }
 
 // Validate checks the app is internally consistent and Kubernetes-safe.
@@ -60,6 +98,12 @@ func (a App) Validate() error {
 		}
 		if s.Replicas < 1 {
 			return fmt.Errorf("service %q replicas must be >= 1", s.Name)
+		}
+		// An empty tag is allowed here — Generate defaults it to "latest".
+		if s.Tag != "" {
+			if err := ValidateTag(s.Tag); err != nil {
+				return fmt.Errorf("service %q: %w", s.Name, err)
+			}
 		}
 	}
 	return nil
