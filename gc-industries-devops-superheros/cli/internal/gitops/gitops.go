@@ -39,10 +39,10 @@ spec:
   sources:
     - repoURL: {{ .Repo }}
       targetRevision: HEAD
-      path: charts/app
+      path: {{ .Prefix }}charts/app
       helm:
         valueFiles:
-          - $values/apps/{{ .Name }}/values.yaml
+          - $values/{{ .Prefix }}apps/{{ .Name }}/values.yaml
     - repoURL: {{ .Repo }}
       targetRevision: HEAD
       ref: values
@@ -62,11 +62,44 @@ func AppDir(root, name string) string {
 	return filepath.Join(root, "apps", name)
 }
 
+// RepoPrefix returns the path of root relative to the enclosing git repository
+// root, as a forward-slash prefix ending in "/" (or "" when root *is* the repo
+// root).
+//
+// This matters because ArgoCD resolves source paths from the repository root,
+// not from wherever LaunchPad was run. When the platform tree is nested inside
+// the repo — as in project-gc-industries-devops-superheros/gc-industries-devops-superheros —
+// the chart lives at "<prefix>charts/app", and emitting a bare "charts/app"
+// makes ArgoCD fail with "app path does not exist".
+func RepoPrefix(root string) string {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return ""
+	}
+	// Walk up looking for the .git directory (or file, for worktrees).
+	dir := abs
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			rel, err := filepath.Rel(dir, abs)
+			if err != nil || rel == "." {
+				return ""
+			}
+			return filepath.ToSlash(rel) + "/"
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "" // no repo found; assume root is the repo root
+		}
+		dir = parent
+	}
+}
+
 // Generate writes the registry entry, chart values, and ArgoCD Application for
 // app into <root>/apps/<name>/. gitopsRepo is the URL of the platform/GitOps
-// repo that ArgoCD watches (not the developer's app source repo). It returns the
-// list of written file paths.
-func Generate(root string, app spec.App, gitopsRepo string) ([]string, error) {
+// repo that ArgoCD watches (not the developer's app source repo). pathPrefix is
+// the repo-relative prefix for ArgoCD source paths; pass "" to auto-detect it
+// from the enclosing git repository. It returns the written file paths.
+func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]string, error) {
 	if err := app.Validate(); err != nil {
 		return nil, err
 	}
@@ -114,11 +147,15 @@ func Generate(root string, app spec.App, gitopsRepo string) ([]string, error) {
 	}
 
 	// 3. ArgoCD Application
+	if pathPrefix == "" {
+		pathPrefix = RepoPrefix(root)
+	}
 	var argo bytes.Buffer
-	if err := argoAppTmpl.Execute(&argo, struct{ Name, Namespace, Repo string }{
+	if err := argoAppTmpl.Execute(&argo, struct{ Name, Namespace, Repo, Prefix string }{
 		Name:      app.Name,
 		Namespace: app.Namespace,
 		Repo:      gitopsRepo,
+		Prefix:    pathPrefix,
 	}); err != nil {
 		return nil, err
 	}

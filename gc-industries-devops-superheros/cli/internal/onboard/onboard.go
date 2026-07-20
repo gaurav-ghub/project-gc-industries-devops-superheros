@@ -22,6 +22,7 @@ type Options struct {
 	GitopsRepo string // repo URL ArgoCD watches
 	Commit     bool   // stage + commit generated files (default off)
 	From       string // non-interactive: load the app spec from this YAML file
+	PathPrefix string // repo-relative prefix for ArgoCD paths ("" = auto-detect)
 }
 
 // Run drives onboarding and writes the GitOps files. If opts.From is set it
@@ -109,13 +110,20 @@ func finish(opts Options, app spec.App) error {
 	}
 
 	render.Section("Generating GitOps files")
-	written, err := gitops.Generate(opts.Root, app, opts.GitopsRepo)
+	prefix := opts.PathPrefix
+	if prefix == "" {
+		prefix = gitops.RepoPrefix(opts.Root)
+	}
+	written, err := gitops.Generate(opts.Root, app, opts.GitopsRepo, prefix)
 	if err != nil {
 		render.Error(err.Error())
 		return err
 	}
 	for _, w := range written {
 		render.Success("wrote " + w)
+	}
+	if prefix != "" {
+		render.Info("ArgoCD source paths prefixed with " + prefix + " (platform tree is nested in the repo)")
 	}
 
 	if opts.Commit {

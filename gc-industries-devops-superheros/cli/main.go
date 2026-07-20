@@ -59,8 +59,11 @@ func cmdOnboard(args []string) error {
 	repo := fs.String("gitops-repo", defaultGitopsRepo, "repo URL ArgoCD watches")
 	commit := fs.Bool("commit", false, "stage and commit the generated files (never pushes)")
 	from := fs.String("from", "", "non-interactive: load the app spec from this YAML file")
+	prefix := fs.String("path-prefix", "", "repo-relative prefix for ArgoCD source paths (default: auto-detect)")
 	_ = fs.Parse(args)
-	return onboard.Run(onboard.Options{Root: *root, GitopsRepo: *repo, Commit: *commit, From: *from})
+	return onboard.Run(onboard.Options{
+		Root: *root, GitopsRepo: *repo, Commit: *commit, From: *from, PathPrefix: *prefix,
+	})
 }
 
 func cmdList(args []string) error {

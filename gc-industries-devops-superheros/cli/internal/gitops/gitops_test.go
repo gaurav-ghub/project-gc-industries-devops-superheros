@@ -25,7 +25,7 @@ func sampleApp() spec.App {
 
 func TestGenerateWritesThreeFiles(t *testing.T) {
 	root := t.TempDir()
-	written, err := Generate(root, sampleApp(), "https://example.com/platform.git")
+	written, err := Generate(root, sampleApp(), "https://example.com/platform.git", "")
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestGenerateWritesThreeFiles(t *testing.T) {
 
 func TestGenerateDefaultsTag(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Generate(root, sampleApp(), "r"); err != nil {
+	if _, err := Generate(root, sampleApp(), "r", ""); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, "apps", "superheros", "values.yaml"))
@@ -64,7 +64,7 @@ func TestGenerateDefaultsTag(t *testing.T) {
 
 func TestApplicationIsMultiSource(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Generate(root, sampleApp(), "https://example.com/platform.git"); err != nil {
+	if _, err := Generate(root, sampleApp(), "https://example.com/platform.git", ""); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, "apps", "superheros", "application.yaml"))
@@ -83,18 +83,62 @@ func TestApplicationIsMultiSource(t *testing.T) {
 	}
 }
 
+// The platform tree can be nested inside the git repo (as it is in
+// project-gc-industries-devops-superheros/gc-industries-devops-superheros).
+// ArgoCD resolves source paths from the REPO root, so the generated Application
+// must carry that prefix — otherwise ArgoCD fails with "app path does not exist".
+func TestApplicationPathsAreRepoRelativeWhenNested(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(repoRoot, "gc-industries-devops-superheros")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := RepoPrefix(nested); got != "gc-industries-devops-superheros/" {
+		t.Fatalf("RepoPrefix = %q, want %q", got, "gc-industries-devops-superheros/")
+	}
+
+	if _, err := Generate(nested, sampleApp(), "https://example.com/platform.git", ""); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(nested, "apps", "superheros", "application.yaml"))
+	s := string(data)
+	for _, want := range []string{
+		"path: gc-industries-devops-superheros/charts/app",
+		"$values/gc-industries-devops-superheros/apps/superheros/values.yaml",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("application.yaml missing %q\n---\n%s", want, s)
+		}
+	}
+}
+
+// When root IS the repo root, no prefix should be emitted.
+func TestRepoPrefixEmptyAtRepoRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := RepoPrefix(repoRoot); got != "" {
+		t.Errorf("RepoPrefix at repo root = %q, want empty", got)
+	}
+}
+
 func TestGenerateRejectsInvalidApp(t *testing.T) {
 	root := t.TempDir()
 	bad := sampleApp()
 	bad.Services = nil // no services
-	if _, err := Generate(root, bad, "r"); err == nil {
+	if _, err := Generate(root, bad, "r", ""); err == nil {
 		t.Fatal("expected validation error for app with no services")
 	}
 }
 
 func TestListRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Generate(root, sampleApp(), "r"); err != nil {
+	if _, err := Generate(root, sampleApp(), "r", ""); err != nil {
 		t.Fatal(err)
 	}
 	apps, err := List(root)
