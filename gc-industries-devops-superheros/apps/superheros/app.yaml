@@ -1,7 +1,7 @@
 # LaunchPad registry entry — do not edit by hand; use `launchpad onboard`
 ---
 name: superheros
-namespace: superheros-lp
+namespace: superheros
 repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
 owner: gc-industries
 services:
