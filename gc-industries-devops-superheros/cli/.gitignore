@@ -1,0 +1,4 @@
+# Compiled LaunchPad binaries — build locally with `go build`, don't commit.
+launchpad
+launchpad.exe
+/dist/

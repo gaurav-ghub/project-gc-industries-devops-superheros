@@ -1,0 +1,10 @@
+apiVersion: v2
+name: app
+description: >-
+  LaunchPad generic application chart. Renders one Deployment + Service per entry
+  in .Values.services, so any application — single-service or multi-service, any
+  language — deploys from the same chart. This is what makes the platform
+  application-agnostic.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

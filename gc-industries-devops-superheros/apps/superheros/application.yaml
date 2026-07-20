@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: superheros
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+      targetRevision: HEAD
+      path: charts/app
+      helm:
+        valueFiles:
+          - $values/apps/superheros/values.yaml
+    - repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+      targetRevision: HEAD
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: superheros
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

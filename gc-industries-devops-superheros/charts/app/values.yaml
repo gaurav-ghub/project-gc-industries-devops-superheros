@@ -1,0 +1,18 @@
+# Default values for the LaunchPad generic app chart.
+# LaunchPad generates a per-application values file (apps/<name>/values.yaml)
+# that overrides these. The shape:
+#
+# app:
+#   name: superheros
+# services:
+#   - name: frontend
+#     image: dockergc00/superheros-frontend
+#     tag: latest
+#     port: 8080
+#     replicas: 2
+
+app:
+  name: app
+
+# One entry per service. Each renders a Deployment + Service.
+services: []
