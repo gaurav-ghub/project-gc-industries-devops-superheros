@@ -1,0 +1,56 @@
+{{/*
+Canary routing. One DestinationRule + VirtualService per service that declares
+weighted versions, and nothing at all for a service that does not — so an
+application only pays for the mesh where it is actually splitting traffic.
+
+The VirtualService binds to the service's short name and no gateway, which makes
+it a *mesh-internal* rule: it is enforced by the sidecar of whatever pod is
+calling, for every caller in the namespace, without the platform needing to know
+a single thing about the application's URL structure. That is what keeps canary
+application-agnostic; the pre-LaunchPad superhero chart had to hardcode
+`/api/catalog` into a gateway route to achieve the same thing.
+
+The weights live here and only here. Nothing about a weight change touches a
+pod spec, so shifting traffic never restarts a pod.
+*/}}
+{{- if .Values.mesh.enabled }}
+{{- range $svc := .Values.services }}
+{{- if $svc.versions }}
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: {{ $svc.name }}
+  labels:
+    {{- include "app.labels" (dict "svc" $svc "root" $) | nindent 4 }}
+spec:
+  host: {{ $svc.name }}
+  subsets:
+    {{- range $v := $svc.versions }}
+    - name: {{ $v.name }}
+      labels:
+        app.kubernetes.io/version: {{ $v.name }}
+    {{- end }}
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ $svc.name }}
+  labels:
+    {{- include "app.labels" (dict "svc" $svc "root" $) | nindent 4 }}
+spec:
+  hosts:
+    - {{ $svc.name }}
+  http:
+    - route:
+        {{- range $v := $svc.versions }}
+        - destination:
+            host: {{ $svc.name }}
+            subset: {{ $v.name }}
+            port:
+              number: {{ $svc.port }}
+          weight: {{ $v.weight }}
+        {{- end }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

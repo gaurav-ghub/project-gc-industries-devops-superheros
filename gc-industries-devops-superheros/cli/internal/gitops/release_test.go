@@ -36,7 +36,7 @@ func readValues(t *testing.T, root string) chartValues {
 func TestSetServiceTagBumpsOnlyTheNamedService(t *testing.T) {
 	root := seed(t)
 
-	bump, err := SetServiceTag(root, "superheros", "catalog", "v2-abc1234")
+	bump, err := SetServiceTag(root, "superheros", "catalog", "", "v2-abc1234")
 	if err != nil {
 		t.Fatalf("SetServiceTag: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestSetServiceTagLeavesApplicationYamlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := SetServiceTag(root, "superheros", "catalog", "v9"); err != nil {
+	if _, err := SetServiceTag(root, "superheros", "catalog", "", "v9"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,7 +97,7 @@ func TestSetServiceTagLeavesApplicationYamlUntouched(t *testing.T) {
 
 func TestSetServiceTagWritesOnlyTwoFiles(t *testing.T) {
 	root := seed(t)
-	bump, err := SetServiceTag(root, "superheros", "catalog", "v9")
+	bump, err := SetServiceTag(root, "superheros", "catalog", "", "v9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,10 +114,10 @@ func TestSetServiceTagWritesOnlyTwoFiles(t *testing.T) {
 // Re-releasing the same tag should be a no-op, not an empty commit.
 func TestSetServiceTagIsNoOpWhenAlreadyAtTag(t *testing.T) {
 	root := seed(t)
-	if _, err := SetServiceTag(root, "superheros", "catalog", "v2"); err != nil {
+	if _, err := SetServiceTag(root, "superheros", "catalog", "", "v2"); err != nil {
 		t.Fatal(err)
 	}
-	bump, err := SetServiceTag(root, "superheros", "catalog", "v2")
+	bump, err := SetServiceTag(root, "superheros", "catalog", "", "v2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestSetServiceTagIsNoOpWhenAlreadyAtTag(t *testing.T) {
 
 func TestSetServiceTagRejectsUnknownService(t *testing.T) {
 	root := seed(t)
-	_, err := SetServiceTag(root, "superheros", "nosuchsvc", "v1")
+	_, err := SetServiceTag(root, "superheros", "nosuchsvc", "", "v1")
 	if err == nil {
 		t.Fatal("expected an error for an unknown service")
 	}
@@ -146,7 +146,7 @@ func TestSetServiceTagRejectsUnknownService(t *testing.T) {
 
 func TestSetServiceTagRejectsUnknownApp(t *testing.T) {
 	root := seed(t)
-	if _, err := SetServiceTag(root, "nosuchapp", "catalog", "v1"); err == nil {
+	if _, err := SetServiceTag(root, "nosuchapp", "catalog", "", "v1"); err == nil {
 		t.Fatal("expected an error for an unknown app")
 	}
 }
@@ -159,7 +159,7 @@ func TestSetServiceTagRejectsBadTagWithoutWriting(t *testing.T) {
 	before, _ := os.ReadFile(path)
 
 	for _, bad := range []string{"", "-leading-dash", "has space", "has/slash"} {
-		if _, err := SetServiceTag(root, "superheros", "catalog", bad); err == nil {
+		if _, err := SetServiceTag(root, "superheros", "catalog", "", bad); err == nil {
 			t.Errorf("tag %q was accepted, want rejection", bad)
 		}
 	}

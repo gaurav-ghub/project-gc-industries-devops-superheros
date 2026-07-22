@@ -38,33 +38,66 @@ func Render(app spec.App) []Resource {
 
 	var out []Resource
 	for _, s := range a.Services {
-		dep := deployment(a, s)
-		out = append(out, Resource{
-			Kind: "Deployment", Name: s.Name, Namespace: a.Namespace, Object: dep,
-		})
-		out = append(out, Resource{
-			Kind: "Pod", Name: s.Name, Namespace: a.Namespace, Object: podFrom(a, s, dep),
-		})
+		// One Deployment (and one synthesized Pod) per version, or exactly one
+		// when the service declares none.
+		for _, v := range s.Rollout() {
+			name := s.WorkloadName(v)
+			dep := deployment(a, s, v)
+			out = append(out, Resource{
+				Kind: "Deployment", Name: name, Namespace: a.Namespace, Object: dep,
+			})
+			out = append(out, Resource{
+				Kind: "Pod", Name: name, Namespace: a.Namespace, Object: podFrom(a, s, v, dep),
+			})
+		}
+		// One Service, fronting every version.
 		out = append(out, Resource{
 			Kind: "Service", Name: s.Name, Namespace: a.Namespace, Object: service(a, s),
 		})
+		if a.Mesh.Enabled && s.IsCanary() {
+			out = append(out, Resource{
+				Kind: "DestinationRule", Name: s.Name, Namespace: a.Namespace, Object: destinationRule(a, s),
+			})
+			out = append(out, Resource{
+				Kind: "VirtualService", Name: s.Name, Namespace: a.Namespace, Object: virtualService(a, s),
+			})
+		}
 	}
 	return out
 }
 
-func labels(app spec.App, s spec.Service) map[string]any {
-	return map[string]any{
+func labels(app spec.App, s spec.Service, version string) map[string]any {
+	m := map[string]any{
 		"app.kubernetes.io/name":       s.Name,
 		"app.kubernetes.io/part-of":    app.Name,
 		"app.kubernetes.io/managed-by": "launchpad",
 	}
+	if version != "" {
+		m["app.kubernetes.io/version"] = version
+	}
+	return m
 }
 
-func selectorLabels(app spec.App, s spec.Service) map[string]any {
-	return map[string]any{
+// podLabels adds the labels that exist only on the pod template: the mesh
+// opt-in, which must not appear on the Deployment's own metadata or on the
+// immutable selector.
+func podLabels(app spec.App, s spec.Service, version string) map[string]any {
+	m := labels(app, s, version)
+	if app.Mesh.Enabled {
+		m["sidecar.istio.io/inject"] = "true"
+	}
+	return m
+}
+
+func selectorLabels(app spec.App, s spec.Service, version string) map[string]any {
+	m := map[string]any{
 		"app.kubernetes.io/name":    s.Name,
 		"app.kubernetes.io/part-of": app.Name,
 	}
+	if version != "" {
+		m["app.kubernetes.io/version"] = version
+	}
+	return m
 }
 
 func podSecurityContext(s spec.Service) map[string]any {
@@ -100,39 +133,60 @@ func resources(s spec.Service) map[string]any {
 	}
 }
 
-func podSpec(s spec.Service) map[string]any {
+func env(s spec.Service, v spec.Version) []any {
+	list := s.EnvFor(v)
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(list))
+	for _, e := range list {
+		out = append(out, map[string]any{"name": e.Name, "value": e.Value})
+	}
+	return out
+}
+
+func podSpec(s spec.Service, v spec.Version) map[string]any {
+	container := map[string]any{
+		"name":            s.Name,
+		"image":           s.VersionRef(v),
+		"imagePullPolicy": "IfNotPresent",
+		"ports": []any{
+			map[string]any{"name": "http", "containerPort": s.Port},
+		},
+		"resources":       resources(s),
+		"securityContext": containerSecurityContext(s),
+	}
+	if e := env(s, v); e != nil {
+		container["env"] = e
+	}
 	return map[string]any{
 		"securityContext": podSecurityContext(s),
-		"containers": []any{
-			map[string]any{
-				"name":            s.Name,
-				"image":           s.Ref(),
-				"imagePullPolicy": "IfNotPresent",
-				"ports": []any{
-					map[string]any{"name": "http", "containerPort": s.Port},
-				},
-				"resources":       resources(s),
-				"securityContext": containerSecurityContext(s),
-			},
-		},
+		"containers":      []any{container},
 	}
 }
 
-func deployment(app spec.App, s spec.Service) map[string]any {
+func replicasOf(v spec.Version) int {
+	if v.Replicas == 0 {
+		return 1
+	}
+	return v.Replicas
+}
+
+func deployment(app spec.App, s spec.Service, v spec.Version) map[string]any {
 	return map[string]any{
 		"apiVersion": "apps/v1",
 		"kind":       "Deployment",
 		"metadata": map[string]any{
-			"name":      s.Name,
+			"name":      s.WorkloadName(v),
 			"namespace": app.Namespace,
-			"labels":    labels(app, s),
+			"labels":    labels(app, s, v.Name),
 		},
 		"spec": map[string]any{
-			"replicas": s.Replicas,
-			"selector": map[string]any{"matchLabels": selectorLabels(app, s)},
+			"replicas": replicasOf(v),
+			"selector": map[string]any{"matchLabels": selectorLabels(app, s, v.Name)},
 			"template": map[string]any{
-				"metadata": map[string]any{"labels": labels(app, s)},
-				"spec":     podSpec(s),
+				"metadata": map[string]any{"labels": podLabels(app, s, v.Name)},
+				"spec":     podSpec(s, v),
 			},
 		},
 	}
@@ -140,17 +194,64 @@ func deployment(app spec.App, s spec.Service) map[string]any {
 
 // podFrom lifts a Deployment's pod template into a standalone Pod object, which
 // is what a Pod-matching Kyverno rule is really being asked about.
-func podFrom(app spec.App, s spec.Service, dep map[string]any) map[string]any {
+func podFrom(app spec.App, s spec.Service, v spec.Version, dep map[string]any) map[string]any {
 	tmpl := dep["spec"].(map[string]any)["template"].(map[string]any)
 	return map[string]any{
 		"apiVersion": "v1",
 		"kind":       "Pod",
 		"metadata": map[string]any{
-			"name":      s.Name,
+			"name":      s.WorkloadName(v),
 			"namespace": app.Namespace,
 			"labels":    tmpl["metadata"].(map[string]any)["labels"],
 		},
-		"spec": podSpec(s),
+		"spec": podSpec(s, v),
+	}
+}
+
+func destinationRule(app spec.App, s spec.Service) map[string]any {
+	subsets := make([]any, 0, len(s.Versions))
+	for _, v := range s.Versions {
+		subsets = append(subsets, map[string]any{
+			"name":   v.Name,
+			"labels": map[string]any{"app.kubernetes.io/version": v.Name},
+		})
+	}
+	return map[string]any{
+		"apiVersion": "networking.istio.io/v1",
+		"kind":       "DestinationRule",
+		"metadata": map[string]any{
+			"name":      s.Name,
+			"namespace": app.Namespace,
+			"labels":    labels(app, s, ""),
+		},
+		"spec": map[string]any{"host": s.Name, "subsets": subsets},
+	}
+}
+
+func virtualService(app spec.App, s spec.Service) map[string]any {
+	routes := make([]any, 0, len(s.Versions))
+	for _, v := range s.Versions {
+		routes = append(routes, map[string]any{
+			"destination": map[string]any{
+				"host":   s.Name,
+				"subset": v.Name,
+				"port":   map[string]any{"number": s.Port},
+			},
+			"weight": v.Weight,
+		})
+	}
+	return map[string]any{
+		"apiVersion": "networking.istio.io/v1",
+		"kind":       "VirtualService",
+		"metadata": map[string]any{
+			"name":      s.Name,
+			"namespace": app.Namespace,
+			"labels":    labels(app, s, ""),
+		},
+		"spec": map[string]any{
+			"hosts": []any{s.Name},
+			"http":  []any{map[string]any{"route": routes}},
+		},
 	}
 }
 
@@ -161,11 +262,11 @@ func service(app spec.App, s spec.Service) map[string]any {
 		"metadata": map[string]any{
 			"name":      s.Name,
 			"namespace": app.Namespace,
-			"labels":    labels(app, s),
+			"labels":    labels(app, s, ""),
 		},
 		"spec": map[string]any{
 			"type":     "ClusterIP",
-			"selector": selectorLabels(app, s),
+			"selector": selectorLabels(app, s, ""),
 			"ports": []any{
 				map[string]any{"name": "http", "port": s.Port, "targetPort": "http"},
 			},

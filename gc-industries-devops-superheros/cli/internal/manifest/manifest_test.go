@@ -27,6 +27,133 @@ func sample() spec.App {
 	}
 }
 
+// canarySample is the shape Phase 4 added: one service split across weighted
+// versions, with the mesh on.
+func canarySample() spec.App {
+	app := sample()
+	app.Mesh = spec.Mesh{Enabled: true}
+	i := app.FindService("catalog")
+	app.Services[i].Tag = ""
+	app.Services[i].Replicas = 0
+	app.Services[i].Versions = []spec.Version{
+		{Name: "v1", Tag: "v1-6f11a5d", Weight: 40, Replicas: 1,
+			Env: []spec.EnvVar{{Name: "CATALOG_VERSION", Value: "v1"}}},
+		{Name: "v2", Tag: "v2-6f11a5d", Weight: 30, Replicas: 1,
+			Env: []spec.EnvVar{{Name: "CATALOG_VERSION", Value: "v2"}}},
+		{Name: "v3", Tag: "v3-6f11a5d", Weight: 30, Replicas: 1,
+			Env: []spec.EnvVar{{Name: "CATALOG_VERSION", Value: "v3"}}},
+	}
+	return app
+}
+
+// A canary service renders one Deployment per version but still exactly one
+// Service — if it rendered one Service per version there would be nothing for
+// Istio to split, since each version would have its own address.
+func TestCanaryRendersOneWorkloadPerVersionAndOneService(t *testing.T) {
+	counts := map[string]int{}
+	names := map[string]bool{}
+	for _, r := range Render(canarySample()) {
+		counts[r.Kind]++
+		names[r.Kind+"/"+r.Name] = true
+	}
+	for kind, want := range map[string]int{
+		"Deployment": 4, "Pod": 4, "Service": 2, "DestinationRule": 1, "VirtualService": 1,
+	} {
+		if counts[kind] != want {
+			t.Errorf("rendered %d %s, want %d", counts[kind], kind, want)
+		}
+	}
+	for _, want := range []string{
+		"Deployment/catalog-v1", "Deployment/catalog-v2", "Deployment/catalog-v3",
+		"Deployment/frontend", "Service/catalog", "VirtualService/catalog",
+	} {
+		if !names[want] {
+			t.Errorf("missing %s", want)
+		}
+	}
+	if names["Deployment/catalog"] {
+		t.Error("rendered a bare catalog Deployment alongside its versions")
+	}
+	if names["Service/catalog-v1"] {
+		t.Error("rendered a per-version Service — all versions must share one address")
+	}
+}
+
+// The Service must select on name+part-of only. Including the version label
+// would give each version its own endpoint set and make the DestinationRule
+// subsets meaningless.
+func TestCanaryServiceSelectorIgnoresVersion(t *testing.T) {
+	for _, r := range Render(canarySample()) {
+		if r.Kind != "Service" || r.Name != "catalog" {
+			continue
+		}
+		sel := r.Object["spec"].(map[string]any)["selector"].(map[string]any)
+		if _, ok := sel["app.kubernetes.io/version"]; ok {
+			t.Fatalf("Service selector pins a version: %v", sel)
+		}
+		return
+	}
+	t.Fatal("no catalog Service rendered")
+}
+
+// The mesh objects exist only when the application asked for the mesh. Without
+// the sidecars they would be inert configuration that looks like it works.
+func TestMeshObjectsRequireMeshEnabled(t *testing.T) {
+	app := canarySample()
+	app.Mesh.Enabled = false
+	for _, r := range Render(app) {
+		if r.Kind == "VirtualService" || r.Kind == "DestinationRule" {
+			t.Errorf("rendered %s/%s with mesh disabled", r.Kind, r.Name)
+		}
+		if r.Kind != "Deployment" {
+			continue
+		}
+		lbl := r.Object["spec"].(map[string]any)["template"].(map[string]any)["metadata"].(map[string]any)["labels"].(map[string]any)
+		if _, ok := lbl["sidecar.istio.io/inject"]; ok {
+			t.Errorf("%s carries the sidecar opt-in with mesh disabled", r.Name)
+		}
+	}
+}
+
+// The weights are what a canary shift changes, and they must live only in the
+// VirtualService — a weight that reached a pod spec would restart the pod on
+// every shift, which is precisely what routing at the mesh layer avoids.
+func TestWeightsAppearOnlyInTheVirtualService(t *testing.T) {
+	res := Render(canarySample())
+	for _, r := range res {
+		if r.Kind == "VirtualService" {
+			continue
+		}
+		if strings.Contains(dump(t, r.Object), "weight") {
+			t.Errorf("%s/%s mentions a weight — a weight change would restart it", r.Kind, r.Name)
+		}
+	}
+	for _, r := range res {
+		if r.Kind != "VirtualService" {
+			continue
+		}
+		routes := r.Object["spec"].(map[string]any)["http"].([]any)[0].(map[string]any)["route"].([]any)
+		total := 0
+		for _, rt := range routes {
+			total += rt.(map[string]any)["weight"].(int)
+		}
+		if total != 100 {
+			t.Errorf("route weights sum to %d, want 100", total)
+		}
+		return
+	}
+	t.Fatal("no VirtualService rendered")
+}
+
+func dump(t *testing.T, v any) string {
+	t.Helper()
+	b, err := yaml.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 func TestRenderCoversEveryService(t *testing.T) {
 	res := Render(sample())
 	counts := map[string]int{}
@@ -74,16 +201,32 @@ func TestRenderMaterializesDefaults(t *testing.T) {
 // they do. It is skipped where helm is unavailable rather than failing, since
 // the CLI itself never needs helm.
 func TestProjectionMatchesHelmTemplate(t *testing.T) {
+	// Both shapes, because canary is where the two renderers could most easily
+	// diverge: the chart builds its per-version fallback in template language and
+	// the projection builds it in Go, and nothing but this test connects them.
+	for _, tc := range []struct {
+		name string
+		app  spec.App
+	}{
+		{"plain", sample()},
+		{"canary", canarySample()},
+	} {
+		t.Run(tc.name, func(t *testing.T) { assertChartConformance(t, tc.app) })
+	}
+}
+
+func assertChartConformance(t *testing.T, app spec.App) {
+	t.Helper()
 	helm, err := exec.LookPath("helm")
 	if err != nil {
 		t.Skip("helm not installed — skipping chart conformance check")
 	}
 
-	app := sample()
 	app.ApplyDefaults()
 
 	values := map[string]any{
 		"app":      map[string]any{"name": app.Name},
+		"mesh":     map[string]any{"enabled": app.Mesh.Enabled},
 		"services": app.Services,
 	}
 	data, err := yaml.Marshal(values)

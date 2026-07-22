@@ -2,6 +2,8 @@
 ---
 app:
     name: superheros
+mesh:
+    enabled: true
 services:
     - name: frontend
       image: docker.io/dockergc00/superheros-frontend
@@ -25,9 +27,7 @@ services:
             - ALL
     - name: catalog
       image: docker.io/dockergc00/superheros-catalog
-      tag: v3-6f11a5d
       port: 8081
-      replicas: 1
       resources:
         requests:
             cpu: 50m
@@ -43,6 +43,28 @@ services:
         allowPrivilegeEscalation: false
         dropCapabilities:
             - ALL
+      versions:
+        - name: v1
+          tag: v1-6f11a5d
+          weight: 40
+          replicas: 1
+          env:
+            - name: CATALOG_VERSION
+              value: v1
+        - name: v2
+          tag: v2-6f11a5d
+          weight: 30
+          replicas: 1
+          env:
+            - name: CATALOG_VERSION
+              value: v2
+        - name: v3
+          tag: v3-6f11a5d
+          weight: 30
+          replicas: 1
+          env:
+            - name: CATALOG_VERSION
+              value: v3
     - name: inventory
       image: docker.io/dockergc00/superheros-inventory
       tag: v1-b9b34bb

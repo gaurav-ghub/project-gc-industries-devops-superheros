@@ -23,6 +23,7 @@ import (
 // chartValues is the shape consumed by charts/app.
 type chartValues struct {
 	App      map[string]string `yaml:"app"`
+	Mesh     spec.Mesh         `yaml:"mesh,omitempty"`
 	Services []spec.Service    `yaml:"services"`
 }
 
@@ -51,6 +52,14 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Namespace }}
   syncPolicy:
+{{- if .Mesh }}
+    # Sidecar injection is a property of the namespace, and the namespace is
+    # ArgoCD's to create — so the label that turns the mesh on belongs here
+    # rather than in a kubectl command someone has to remember to run.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
+{{- end }}
     automated:
       prune: true
       selfHeal: true
@@ -128,11 +137,15 @@ func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]strin
 		pathPrefix = RepoPrefix(root)
 	}
 	var argo bytes.Buffer
-	if err := argoAppTmpl.Execute(&argo, struct{ Name, Namespace, Repo, Prefix string }{
+	if err := argoAppTmpl.Execute(&argo, struct {
+		Name, Namespace, Repo, Prefix string
+		Mesh                          bool
+	}{
 		Name:      app.Name,
 		Namespace: app.Namespace,
 		Repo:      gitopsRepo,
 		Prefix:    pathPrefix,
+		Mesh:      app.Mesh.Enabled,
 	}); err != nil {
 		return nil, err
 	}
@@ -157,6 +170,7 @@ func writeAppFiles(dir string, app *spec.App) ([]string, error) {
 	}
 	vals, err := yaml.Marshal(chartValues{
 		App:      map[string]string{"name": app.Name},
+		Mesh:     app.Mesh,
 		Services: app.Services,
 	})
 	if err != nil {
@@ -186,10 +200,19 @@ func writeAppFiles(dir string, app *spec.App) ([]string, error) {
 type Bump struct {
 	App     spec.App // the application after the bump
 	Service string   // the service whose tag moved
+	Version string   // the version whose tag moved ("" for a non-canary service)
 	OldTag  string   // tag before the bump
 	NewTag  string   // tag after the bump
 	Written []string // files rewritten (empty when NoOp)
-	NoOp    bool     // true when the service was already at NewTag
+	NoOp    bool     // true when the target was already at NewTag
+}
+
+// Target names what the bump moved, for log lines: "catalog" or "catalog/v2".
+func (b Bump) Target() string {
+	if b.Version == "" {
+		return b.Service
+	}
+	return b.Service + "/" + b.Version
 }
 
 // PlanServiceTag works out what a release would change, without touching disk.
@@ -199,7 +222,9 @@ type Bump struct {
 // only calls WriteBump once the policies have passed. It also means --dry-run
 // and a real release share one code path, so the two can never disagree about
 // what a release does.
-func PlanServiceTag(root, appName, svcName, tag string) (Bump, error) {
+// versionName selects which variant of a canary service a release targets; it
+// must be empty for a service that declares no versions.
+func PlanServiceTag(root, appName, svcName, versionName, tag string) (Bump, error) {
 	var b Bump
 	if err := spec.ValidateTag(tag); err != nil {
 		return b, err
@@ -213,14 +238,38 @@ func PlanServiceTag(root, appName, svcName, tag string) (Bump, error) {
 		return b, fmt.Errorf("app %q has no service %q — services are: %s",
 			appName, svcName, strings.Join(app.ServiceNames(), ", "))
 	}
+	s := &app.Services[i]
 
-	b.Service, b.OldTag, b.NewTag = svcName, app.Services[i].Tag, tag
+	// Which tag is "the" tag depends on whether the service is a canary. Guessing
+	// would be worse than refusing: releasing to a canary service without naming
+	// a version could plausibly mean "all of them", and moving three versions at
+	// once is not something a developer should get by omission.
+	var target *string
+	switch {
+	case s.IsCanary() && versionName == "":
+		return b, fmt.Errorf("service %q is split across versions — pass --version (versions are: %s)",
+			svcName, strings.Join(s.VersionNames(), ", "))
+	case s.IsCanary():
+		j := s.FindVersion(versionName)
+		if j < 0 {
+			return b, fmt.Errorf("service %q has no version %q — versions are: %s",
+				svcName, versionName, strings.Join(s.VersionNames(), ", "))
+		}
+		b.Version = versionName
+		target = &s.Versions[j].Tag
+	case versionName != "":
+		return b, fmt.Errorf("service %q declares no versions — --version applies only to canary services", svcName)
+	default:
+		target = &s.Tag
+	}
+
+	b.Service, b.OldTag, b.NewTag = svcName, *target, tag
 	if b.OldTag == tag {
 		b.App, b.NoOp = app, true
 		return b, nil
 	}
 
-	app.Services[i].Tag = tag
+	*target = tag
 	// Validate the whole app, not just the tag: the registry entry on disk could
 	// have been hand-edited into an invalid state, and a release must not
 	// propagate that into the values file ArgoCD consumes.
@@ -229,6 +278,75 @@ func PlanServiceTag(root, appName, svcName, tag string) (Bump, error) {
 	}
 	b.App = app
 	return b, nil
+}
+
+// WeightChange records a canary traffic shift.
+type WeightChange struct {
+	App     spec.App
+	Service string
+	Deltas  []WeightDelta
+	Written []string
+	NoOp    bool // true when the requested weights are already in force
+}
+
+// WeightDelta is one version's share of traffic, before and after.
+type WeightDelta struct {
+	Version  string
+	Old, New int
+}
+
+// Changed lists only the versions whose share actually moved.
+func (w WeightChange) Changed() []WeightDelta {
+	var out []WeightDelta
+	for _, d := range w.Deltas {
+		if d.Old != d.New {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// PlanWeights works out what a traffic shift would change, without touching
+// disk — the same plan/gate/write shape a release uses.
+func PlanWeights(root, appName, svcName string, weights map[string]int) (WeightChange, error) {
+	var w WeightChange
+	app, err := Load(root, appName)
+	if err != nil {
+		return w, fmt.Errorf("no registered app %q — run `launchpad list` to see what is registered", appName)
+	}
+	i := app.FindService(svcName)
+	if i < 0 {
+		return w, fmt.Errorf("app %q has no service %q — services are: %s",
+			appName, svcName, strings.Join(app.ServiceNames(), ", "))
+	}
+	for _, v := range app.Services[i].Versions {
+		w.Deltas = append(w.Deltas, WeightDelta{Version: v.Name, Old: v.Weight, New: weights[v.Name]})
+	}
+	if err := app.SetWeights(svcName, weights); err != nil {
+		return w, err
+	}
+	if err := app.Validate(); err != nil {
+		return w, err
+	}
+	w.App, w.Service = app, svcName
+	w.NoOp = len(w.Changed()) == 0
+	return w, nil
+}
+
+// WriteWeights commits a planned traffic shift to disk. Like a release it
+// rewrites only the registry entry and the chart values — and unlike a release
+// it changes no pod spec at all, so ArgoCD updates the VirtualService and not a
+// single pod restarts.
+func WriteWeights(root string, w WeightChange) (WeightChange, error) {
+	if w.NoOp {
+		return w, nil
+	}
+	written, err := writeAppFiles(AppDir(root, w.App.Name), &w.App)
+	if err != nil {
+		return w, err
+	}
+	w.Written = written
+	return w, nil
 }
 
 // WriteBump commits a planned bump to disk, rewriting the registry entry and
@@ -249,8 +367,8 @@ func WriteBump(root string, b Bump) (Bump, error) {
 // SetServiceTag plans and writes a release in one step. Callers that need to
 // inspect the result before it reaches disk — the policy gate, --dry-run —
 // should use PlanServiceTag and WriteBump instead.
-func SetServiceTag(root, appName, svcName, tag string) (Bump, error) {
-	b, err := PlanServiceTag(root, appName, svcName, tag)
+func SetServiceTag(root, appName, svcName, versionName, tag string) (Bump, error) {
+	b, err := PlanServiceTag(root, appName, svcName, versionName, tag)
 	if err != nil {
 		return b, err
 	}

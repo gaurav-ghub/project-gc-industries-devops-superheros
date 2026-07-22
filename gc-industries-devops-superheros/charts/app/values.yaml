@@ -12,9 +12,21 @@
 #     replicas: 1
 #     resources: { requests: {...}, limits: {...} }   # optional
 #     security:  { runAsNonRoot: true, ... }          # optional
+#     env:       [ { name: X, value: "y" } ]          # optional
+#     versions:                                       # optional — canary
+#       - { name: v1, tag: v1-abc, weight: 90, replicas: 1, env: [...] }
+#       - { name: v2, tag: v2-def, weight: 10, replicas: 1, env: [...] }
 
 app:
   name: app
+
+# Istio. Off by default: switching it on gives every pod a sidecar (and rolls
+# them all), which only earns its keep when something needs mesh-level routing.
+# A service that declares `versions` needs exactly that — the weights are
+# enforced by Envoy, and with mesh off they are inert while still looking
+# configured. LaunchPad warns when it sees that combination.
+mesh:
+  enabled: false
 
 # Fallbacks for a service that declares no resources/security of its own.
 #

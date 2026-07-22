@@ -20,17 +20,55 @@ name: superheros
 namespace: superheros
 repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
 owner: gc-industries
+
+# Istio. Required by catalog's weighted versions below: the weights are enforced
+# by the caller's sidecar, so without the mesh they are inert and kube-proxy
+# splits traffic evenly regardless of what this file says. Turning it on gives
+# every pod in the namespace a sidecar and rolls all of them once.
+mesh:
+  enabled: true
+
 services:
   - name: frontend
     image: docker.io/dockergc00/superheros-frontend
     tag: v1-9c6f729
     port: 80
     replicas: 1
+  # catalog is the canary. Three versions of the same image run side by side
+  # behind one Service; Istio decides which one serves each request. Note there
+  # is no top-level tag or replicas here — those live on the versions, because a
+  # service that runs three tags at once cannot honestly claim one.
+  #
+  # CATALOG_VERSION is what makes the split observable: the service echoes it
+  # back in its JSON, so `curl /api/catalog` repeatedly shows the distribution.
+  # The weight is deliberately NOT passed as an environment variable — doing so
+  # would restart every pod on every weight change, which is exactly what
+  # shifting traffic at the mesh layer exists to avoid.
   - name: catalog
     image: docker.io/dockergc00/superheros-catalog
-    tag: v3-6f11a5d
     port: 8081
-    replicas: 1
+    versions:
+      - name: v1
+        tag: v1-6f11a5d
+        weight: 40
+        replicas: 1
+        env:
+          - name: CATALOG_VERSION
+            value: v1
+      - name: v2
+        tag: v2-6f11a5d
+        weight: 30
+        replicas: 1
+        env:
+          - name: CATALOG_VERSION
+            value: v2
+      - name: v3
+        tag: v3-6f11a5d
+        weight: 30
+        replicas: 1
+        env:
+          - name: CATALOG_VERSION
+            value: v3
   - name: inventory
     image: docker.io/dockergc00/superheros-inventory
     tag: v1-b9b34bb

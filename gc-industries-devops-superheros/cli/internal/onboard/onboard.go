@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/gc-ghub/launchpad/internal/gitops"
@@ -119,6 +120,9 @@ func finish(opts Options, app spec.App) error {
 	// either all three files are written or none are.
 	gated := app
 	gated.ApplyDefaults()
+	for _, w := range gated.MeshWarnings() {
+		render.Warn(w)
+	}
 	if err := policy.Gate(policy.Options{
 		Root: opts.Root, Dir: opts.PolicyDir, Skip: opts.SkipPolicy,
 	}, gated); err != nil {
@@ -159,18 +163,29 @@ func finish(opts Options, app spec.App) error {
 		}
 		svcNames += s.Name
 	}
-	render.Dashboard("Application onboarded",
-		[][2]string{
-			{"App", render.Value(app.Name)},
-			{"Namespace", render.Value(app.Namespace)},
-			{"Services", render.Value(strconv.Itoa(len(app.Services))) + "  (" + svcNames + ")"},
-			{"Owner", app.Owner},
-		},
-		[]string{
-			"git push the platform repo so ArgoCD can see it",
-			"launchpad status " + app.Name + "   to watch it come up",
-		},
-	)
+	rows := [][2]string{
+		{"App", render.Value(app.Name)},
+		{"Namespace", render.Value(app.Namespace)},
+		{"Services", render.Value(strconv.Itoa(len(app.Services))) + "  (" + svcNames + ")"},
+		{"Owner", app.Owner},
+	}
+	next := []string{
+		"git push the platform repo so ArgoCD can see it",
+		"launchpad status " + app.Name + "   to watch it come up",
+	}
+	if canaries := app.CanaryServices(); len(canaries) > 0 {
+		rows = append(rows, [2]string{"Canary", render.Value(strings.Join(canaries, ", "))})
+		next = append(next, "launchpad canary status "+app.Name+"   to see the traffic split")
+	}
+	if app.Mesh.Enabled {
+		rows = append(rows, [2]string{"Mesh", "istio — namespace gets istio-injection=enabled"})
+		// Applying the Application by hand is already the documented step, but
+		// it is easy to skip on a re-onboard, and the namespace label is the one
+		// change ArgoCD cannot make for itself until it has been told to.
+		next = append(next, "kubectl apply -f "+
+			gitops.AppDir(opts.Root, app.Name)+"/application.yaml   (the namespace label lives here)")
+	}
+	render.Dashboard("Application onboarded", rows, next)
 	return nil
 }
 

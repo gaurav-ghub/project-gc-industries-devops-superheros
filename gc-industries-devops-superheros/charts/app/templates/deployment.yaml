@@ -1,21 +1,36 @@
 {{- range $svc := .Values.services }}
 {{- $res := $svc.resources | default $.Values.defaults.resources }}
 {{- $sec := $svc.security | default $.Values.defaults.security }}
+{{/*
+A service renders one Deployment per version, or exactly one when it declares
+none. The single-variant fallback carries the service's own tag/replicas/env so
+that adopting canary elsewhere in the application changes nothing here.
+*/}}
+{{- $rollout := $svc.versions | default (list (dict "name" "" "tag" ($svc.tag | default "latest") "replicas" ($svc.replicas | default 1) "env" ($svc.env | default list))) }}
+{{- range $v := $rollout }}
+{{- $env := $v.env | default ($svc.env | default list) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $svc.name }}
+  name: {{ if $v.name }}{{ $svc.name }}-{{ $v.name }}{{ else }}{{ $svc.name }}{{ end }}
   labels:
-    {{- include "app.labels" (dict "svc" $svc "root" $) | nindent 4 }}
+    {{- include "app.labels" (dict "svc" $svc "root" $ "version" $v.name) | nindent 4 }}
 spec:
-  replicas: {{ $svc.replicas | default 1 }}
+  replicas: {{ $v.replicas | default 1 }}
   selector:
     matchLabels:
-      {{- include "app.selectorLabels" (dict "svc" $svc "root" $) | nindent 6 }}
+      {{- include "app.selectorLabels" (dict "svc" $svc "root" $ "version" $v.name) | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "app.labels" (dict "svc" $svc "root" $) | nindent 8 }}
+        {{- include "app.labels" (dict "svc" $svc "root" $ "version" $v.name) | nindent 8 }}
+        {{- if $.Values.mesh.enabled }}
+        # Opting the pod in explicitly does two jobs: it states the intent in the
+        # manifest, and it changes the pod template — so enabling the mesh rolls
+        # the existing pods through ArgoCD instead of needing a manual restart
+        # before any of them has a sidecar to route with.
+        sidecar.istio.io/inject: "true"
+        {{- end }}
     spec:
       # Pod-level half of the service's security block. Kyverno's
       # enforce-security-context policy reads runAsNonRoot from here.
@@ -26,11 +41,18 @@ spec:
         fsGroup: {{ $sec.fsGroup }}
       containers:
         - name: {{ $svc.name }}
-          image: "{{ $svc.image }}:{{ $svc.tag | default "latest" }}"
+          image: "{{ $svc.image }}:{{ $v.tag | default "latest" }}"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: {{ $svc.port }}
+          {{- if $env }}
+          env:
+            {{- range $e := $env }}
+            - name: {{ $e.name }}
+              value: {{ $e.value | quote }}
+            {{- end }}
+          {{- end }}
           resources:
             requests:
               cpu: {{ $res.requests.cpu | quote }}
@@ -47,4 +69,5 @@ spec:
                 - {{ $cap }}
                 {{- end }}
 ---
+{{- end }}
 {{- end }}

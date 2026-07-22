@@ -24,6 +24,7 @@ type Options struct {
 	Root       string // platform repo root
 	App        string // registered application name
 	Service    string // the one service to promote
+	Version    string // the canary version to promote ("" for a plain service)
 	Tag        string // the image tag to promote to
 	Commit     bool   // stage + commit the changed files (never pushes)
 	DryRun     bool   // report what would change, write nothing
@@ -47,20 +48,20 @@ func Run(opts Options) error {
 	// policy gate has seen the manifests it would produce, so the plan/gate/write
 	// order is the same whether this is a dry run or the real thing — a dry run
 	// is simply the same pipeline stopped one step early.
-	bump, err := gitops.PlanServiceTag(opts.Root, opts.App, opts.Service, opts.Tag)
+	bump, err := gitops.PlanServiceTag(opts.Root, opts.App, opts.Service, opts.Version, opts.Tag)
 	if err != nil {
 		return err
 	}
 
 	if bump.NoOp {
 		render.Warn(fmt.Sprintf("%s is already at %s — nothing to do",
-			render.Value(opts.Service), render.Value(opts.Tag)))
+			render.Value(bump.Target()), render.Value(opts.Tag)))
 		render.Info("no files changed, nothing to commit")
 		return nil
 	}
 
 	render.Step(fmt.Sprintf("would bump %s  %s → %s",
-		render.Value(bump.Service), bump.OldTag, render.Value(bump.NewTag)))
+		render.Value(bump.Target()), bump.OldTag, render.Value(bump.NewTag)))
 
 	if err := policy.Gate(policy.Options{
 		Root: opts.Root, Dir: opts.PolicyDir, Skip: opts.SkipPolicy,
@@ -78,12 +79,12 @@ func Run(opts Options) error {
 	}
 
 	render.Step(fmt.Sprintf("%s  %s → %s",
-		render.Value(bump.Service), bump.OldTag, render.Value(bump.NewTag)))
+		render.Value(bump.Target()), bump.OldTag, render.Value(bump.NewTag)))
 	for _, w := range bump.Written {
 		render.Success("wrote " + w)
 	}
 
-	untouched := otherServices(bump)
+	untouched := otherWorkloads(bump)
 	if len(untouched) > 0 {
 		render.Info("unchanged: " + join(untouched))
 	}
@@ -101,26 +102,37 @@ func Run(opts Options) error {
 	render.Dashboard("Release prepared",
 		[][2]string{
 			{"App", render.Value(bump.App.Name)},
-			{"Service", render.Value(bump.Service)},
+			{"Service", render.Value(bump.Target())},
 			{"Tag", bump.OldTag + " → " + render.Value(bump.NewTag)},
 			{"Namespace", bump.App.Namespace},
 			{"Untouched", join(untouched)},
 		},
 		[]string{
 			"git push the platform repo so ArgoCD can see it",
-			"launchpad status " + bump.App.Name + "   to watch only " + bump.Service + " roll",
+			"launchpad status " + bump.App.Name + "   to watch only " + bump.Target() + " roll",
 		},
 	)
 	return nil
 }
 
-// otherServices lists the services a release leaves alone. Naming them is the
-// point of the per-service model, so the CLI says it out loud.
-func otherServices(b gitops.Bump) []string {
+// otherWorkloads lists the Deployments a release leaves alone. Naming them is
+// the point of the per-service model, so the CLI says it out loud — and for a
+// canary service that means naming the *sibling versions* too, since releasing
+// catalog/v2 must leave catalog/v1 and catalog/v3 exactly where they were.
+func otherWorkloads(b gitops.Bump) []string {
 	var out []string
-	for _, n := range b.App.ServiceNames() {
-		if n != b.Service {
-			out = append(out, n)
+	for _, s := range b.App.Services {
+		if !s.IsCanary() {
+			if s.Name != b.Service {
+				out = append(out, s.Name)
+			}
+			continue
+		}
+		for _, v := range s.Versions {
+			if s.Name == b.Service && v.Name == b.Version {
+				continue
+			}
+			out = append(out, s.Name+"/"+v.Name)
 		}
 	}
 	return out
@@ -138,7 +150,7 @@ func commit(root string, b gitops.Bump) error {
 	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("git add: %s", out)
 	}
-	msg := fmt.Sprintf("launchpad: release %s/%s %s", b.App.Name, b.Service, b.NewTag)
+	msg := fmt.Sprintf("launchpad: release %s/%s %s", b.App.Name, b.Target(), b.NewTag)
 	if out, err := exec.Command("git", "-C", root, "commit", "-m", msg).CombinedOutput(); err != nil {
 		return fmt.Errorf("git commit: %s", out)
 	}

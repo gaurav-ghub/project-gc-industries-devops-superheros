@@ -19,6 +19,12 @@ spec:
     server: https://kubernetes.default.svc
     namespace: superheros
   syncPolicy:
+    # Sidecar injection is a property of the namespace, and the namespace is
+    # ArgoCD's to create — so the label that turns the mesh on belongs here
+    # rather than in a kubectl command someone has to remember to run.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
     automated:
       prune: true
       selfHeal: true

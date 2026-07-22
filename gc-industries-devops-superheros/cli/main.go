@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gc-ghub/launchpad/internal/canary"
 	"github.com/gc-ghub/launchpad/internal/gitops"
 	"github.com/gc-ghub/launchpad/internal/onboard"
 	"github.com/gc-ghub/launchpad/internal/policy"
@@ -39,6 +40,8 @@ func main() {
 		err = cmdOnboard(args)
 	case "release":
 		err = cmdRelease(args)
+	case "canary":
+		err = cmdCanary(args)
 	case "policy":
 		err = cmdPolicy(args)
 	case "list", "ls":
@@ -104,6 +107,7 @@ func cmdRelease(args []string) error {
 	fs := flag.NewFlagSet("release", flag.ExitOnError)
 	root := fs.String("root", ".", "platform repo root")
 	service := fs.String("service", "", "the service to promote")
+	ver := fs.String("version", "", "the canary version to promote (required for a service with versions)")
 	tag := fs.String("tag", "", "the image tag to promote to")
 	commit := fs.Bool("commit", false, "stage and commit the changed files (never pushes)")
 	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
@@ -114,10 +118,92 @@ func cmdRelease(args []string) error {
 		return err
 	}
 	return release.Run(release.Options{
-		Root: *root, App: app, Service: *service, Tag: *tag,
+		Root: *root, App: app, Service: *service, Version: *ver, Tag: *tag,
 		Commit: *commit, DryRun: *dryRun,
 		PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
 	})
+}
+
+// cmdCanary is the traffic half of the platform: `canary status` shows how an
+// application's traffic is currently split, `canary set` changes the split, and
+// `canary promote` is the shorthand for sending all of it to one version.
+//
+// It is a separate command from `release` on purpose. Releasing changes what
+// runs and restarts pods; shifting traffic changes who is served and restarts
+// nothing. Collapsing the two into one command would hide exactly the
+// distinction that makes a canary safe.
+func cmdCanary(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: launchpad canary status <app> | canary set <app> --service <svc> --weights v1=90,v2=10 | canary promote <app> --service <svc> --version <v>")
+	}
+	sub, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet("canary", flag.ExitOnError)
+	root := fs.String("root", ".", "platform repo root")
+	service := fs.String("service", "", "the canary service")
+	weights := fs.String("weights", "", "traffic split, e.g. v1=90,v2=10 (must sum to 100)")
+	to := fs.String("version", "", "the version to send all traffic to (promote)")
+	commit := fs.Bool("commit", false, "stage and commit the changed files (never pushes)")
+	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
+	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
+	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
+
+	switch sub {
+	case "status":
+		app, err := parsePositional(fs, rest, "launchpad canary status <app>")
+		if err != nil {
+			return err
+		}
+		return canary.Status(*root, app)
+
+	case "set":
+		app, err := parsePositional(fs, rest, "launchpad canary set <app> --service <svc> --weights v1=90,v2=10")
+		if err != nil {
+			return err
+		}
+		if *weights == "" {
+			return fmt.Errorf("--weights is required, e.g. --weights v1=90,v2=10")
+		}
+		w, err := canary.ParseWeights(*weights)
+		if err != nil {
+			return err
+		}
+		return canary.Shift(canary.Options{
+			Root: *root, App: app, Service: *service, Weights: w,
+			Commit: *commit, DryRun: *dryRun,
+			PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
+		})
+
+	case "promote":
+		app, err := parsePositional(fs, rest, "launchpad canary promote <app> --service <svc> --version <v>")
+		if err != nil {
+			return err
+		}
+		if *to == "" {
+			return fmt.Errorf("--version is required (which version should receive all the traffic?)")
+		}
+		reg, err := gitops.Load(*root, app)
+		if err != nil {
+			return fmt.Errorf("no registered app %q (%v)", app, err)
+		}
+		i := reg.FindService(*service)
+		if i < 0 {
+			return fmt.Errorf("app %q has no service %q — services are: %s",
+				app, *service, strings.Join(reg.ServiceNames(), ", "))
+		}
+		w, err := canary.PromoteWeights(reg.Services[i], *to)
+		if err != nil {
+			return err
+		}
+		return canary.Shift(canary.Options{
+			Root: *root, App: app, Service: *service, Weights: w,
+			Commit: *commit, DryRun: *dryRun,
+			PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
+		})
+
+	default:
+		return fmt.Errorf("unknown canary subcommand %q — use status, set or promote", sub)
+	}
 }
 
 // cmdPolicy is the standalone view of the gate: `policy list` shows what the
@@ -276,14 +362,17 @@ func usage() {
 	fmt.Println(`Usage: launchpad <command> [flags]
 
 Commands:
-  onboard            Register and generate GitOps files for an application
-  release <app>      Promote one service to a new image tag
-  policy list        Show the Kyverno policies the platform enforces
-  policy check <app> Evaluate a registered application against them
-  list               List registered applications
-  status <app>       Show an application's services and pods
-  version            Print version
-  help               Show this help
+  onboard             Register and generate GitOps files for an application
+  release <app>       Promote one service (or one canary version) to a new tag
+  canary status <app> Show how each service's traffic is split
+  canary set <app>    Change a canary service's traffic weights
+  canary promote <app>Send all of a canary service's traffic to one version
+  policy list         Show the Kyverno policies the platform enforces
+  policy check <app>  Evaluate a registered application against them
+  list                List registered applications
+  status <app>        Show an application's services and pods
+  version             Print version
+  help                Show this help
 
 Onboard flags:
   --root <dir>          platform repo root (default ".")
@@ -294,18 +383,33 @@ Onboard flags:
 
 Release flags:
   --service <name>      the service to promote (required)
+  --version <name>      the canary version to promote (required if the service
+                        declares versions; rejected if it does not)
   --tag <tag>           the image tag to promote to (required)
   --root <dir>          platform repo root (default ".")
   --dry-run             report what would change without writing
   --commit              stage + commit changed files (never pushes)
 
-Policy flags (onboard, release and policy):
+Canary flags:
+  --service <name>      the canary service (required for set and promote)
+  --weights v1=90,v2=10 the new split; must name every version and sum to 100
+  --version <name>      promote: the version that receives all the traffic
+  --root <dir>          platform repo root (default ".")
+  --dry-run             report what would change without writing
+  --commit              stage + commit changed files (never pushes)
+
+Policy flags (onboard, release, canary and policy):
   --policy-dir <dir>    Kyverno policy directory (default <root>/` + policy.DefaultDir + `)
   --skip-policy         break glass: report violations but do not block
 
-Onboard and release refuse to write anything when an Enforce-mode Kyverno
-policy would reject the manifests they generate.
+Onboard, release and canary refuse to write anything when an Enforce-mode
+Kyverno policy would reject the manifests they generate.
 
-Example:
-  launchpad release superheros --service catalog --tag v2-abc1234`)
+A release replaces pods; a canary shift replaces none — it only rewrites the
+Istio VirtualService weights, so traffic moves without a restart.
+
+Examples:
+  launchpad release superheros --service catalog --version v2 --tag v2-abc1234
+  launchpad canary set superheros --service catalog --weights v1=80,v2=10,v3=10
+  launchpad canary promote superheros --service catalog --version v3`)
 }
