@@ -36,6 +36,17 @@ kind: Application
 metadata:
   name: {{ .Name }}
   namespace: argocd
+{{- if .Subscriptions }}
+  # Who hears about this application, and when. The stages a developer can ask
+  # for are LaunchPad's; the triggers below are ArgoCD's — because ArgoCD is the
+  # only thing that deploys, and so the only thing that knows whether a deploy
+  # worked. The onboarded and requested stages have no trigger here on purpose:
+  # those are sent by the CLI, which knows intent and nothing more.
+  annotations:
+{{- range .Subscriptions }}
+    notifications.argoproj.io/subscribe.{{ .Trigger }}.{{ .Service }}: {{ printf "%q" .Recipient }}
+{{- end }}
+{{- end }}
 spec:
   project: default
   sources:
@@ -140,12 +151,14 @@ func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]strin
 	if err := argoAppTmpl.Execute(&argo, struct {
 		Name, Namespace, Repo, Prefix string
 		Mesh                          bool
+		Subscriptions                 []Subscription
 	}{
-		Name:      app.Name,
-		Namespace: app.Namespace,
-		Repo:      gitopsRepo,
-		Prefix:    pathPrefix,
-		Mesh:      app.Mesh.Enabled,
+		Name:          app.Name,
+		Namespace:     app.Namespace,
+		Repo:          gitopsRepo,
+		Prefix:        pathPrefix,
+		Mesh:          app.Mesh.Enabled,
+		Subscriptions: Subscriptions(app.Notify),
 	}); err != nil {
 		return nil, err
 	}

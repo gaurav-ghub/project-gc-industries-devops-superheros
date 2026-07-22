@@ -10,12 +10,13 @@ package release
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"github.com/gc-ghub/launchpad/internal/gitops"
+	"github.com/gc-ghub/launchpad/internal/notify"
 	"github.com/gc-ghub/launchpad/internal/policy"
 	"github.com/gc-ghub/launchpad/internal/render"
+	"github.com/gc-ghub/launchpad/internal/spec"
 	"github.com/gc-ghub/launchpad/internal/version"
 )
 
@@ -30,6 +31,7 @@ type Options struct {
 	DryRun     bool   // report what would change, write nothing
 	PolicyDir  string // override the Kyverno policy directory
 	SkipPolicy bool   // break glass: report policy violations but do not block
+	NoNotify   bool   // do not send the CLI notification
 }
 
 // Run promotes one service to a new image tag and prints the result.
@@ -90,13 +92,23 @@ func Run(opts Options) error {
 	}
 
 	if opts.Commit {
-		if err := commit(opts.Root, bump); err != nil {
+		msg := fmt.Sprintf("launchpad: release %s/%s %s", bump.App.Name, bump.Target(), bump.NewTag)
+		if err := gitops.Commit(opts.Root, bump.Written, msg); err != nil {
 			render.Warn("commit skipped: " + err.Error())
 		} else {
-			render.Success("staged and committed (not pushed)")
+			render.Success("staged and committed, not pushed — " + gitops.HeadSubject(opts.Root))
 		}
 	} else {
 		render.Info("not committed — review the diff, then commit when ready")
+	}
+
+	// Intent, not outcome. The tag has moved in git and nothing has moved in the
+	// cluster: the commit may not even be pushed yet. ArgoCD sends the rest.
+	if !opts.NoNotify {
+		e := notify.New(spec.StageRequested, bump.App)
+		e.Service, e.Version = bump.Service, bump.Version
+		e.Detail = bump.OldTag + " → " + bump.NewTag
+		notify.Send(bump.App, e)
 	}
 
 	render.Dashboard("Release prepared",
@@ -143,16 +155,4 @@ func join(names []string) string {
 		return "none"
 	}
 	return strings.Join(names, ", ")
-}
-
-func commit(root string, b gitops.Bump) error {
-	args := append([]string{"-C", root, "add"}, b.Written...)
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("git add: %s", out)
-	}
-	msg := fmt.Sprintf("launchpad: release %s/%s %s", b.App.Name, b.Target(), b.NewTag)
-	if out, err := exec.Command("git", "-C", root, "commit", "-m", msg).CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit: %s", out)
-	}
-	return nil
 }

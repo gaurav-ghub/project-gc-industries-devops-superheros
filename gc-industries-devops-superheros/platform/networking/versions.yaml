@@ -6,10 +6,35 @@
 # by the platform.
 #
 # Update versions here instead of modifying installation scripts.
+#
+# ---------------------------------------------------------------------------
+# This file is READ by platform/networking/istio/install.sh, which refuses to
+# install when the istioctl on PATH is a different version.
+#
+# It did not used to be. Until Phase 5 it declared istio 1.28.0 while the
+# cluster ran 1.23.1, because the installer ran a bare `istioctl install` and
+# the installed version was therefore whatever happened to be on the operator's
+# PATH. A version file nobody reads is documentation, not configuration — and
+# documentation that is wrong is worse than none.
+#
+# istioctl installs the control plane bundled with itself, so this file cannot
+# *choose* a version; it can only insist that the operator's istioctl is the
+# one the platform was verified against. To move Istio, download the matching
+# istioctl and change the number here in the same commit.
+# ---------------------------------------------------------------------------
 ###############################################################################
 
 istio:
-  version: "1.28.0"
+  # Verified in kind: control plane docker.io/istio/pilot:1.23.1, sidecar
+  # docker.io/istio/proxyv2:1.23.1. networking.istio.io/v1 — used by the canary
+  # VirtualService and DestinationRule in charts/app — has been available since
+  # Istio 1.22.
+  version: "1.23.1"
 
+# Kiali is NOT installed by this platform. There is no platform/networking/kiali
+# module and nothing in the bootstrap references one; the number below was
+# aspirational. It is kept, explicitly labelled, as the version to install if
+# and when a Kiali module is added — not as a claim that one exists.
 kiali:
+  installed: false
   version: "2.17.0"

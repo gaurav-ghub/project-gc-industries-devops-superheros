@@ -89,28 +89,53 @@ create_argocd_namespace() {
 
 
 
+# An installed release is upgraded, not skipped.
+#
+# This used to return early whenever `helm status argocd` succeeded, which made
+# the module idempotent in the narrow sense and useless in the useful one: no
+# change to values.yaml could ever reach a cluster that already had ArgoCD.
+# Phase 5 puts the notification services, templates and triggers in that file,
+# so "already installed" had to stop meaning "never reconfigured".
+#
+# Slack credentials, if any, come from values.slack.yaml — untracked, optional,
+# and layered on top so the committed file never holds a token.
 install_argocd_chart() {
 
-    log_info "Installing ArgoCD..."
+    local -a values_args=( --values "${ARGOCD_DIR}/values.yaml" )
+
+    if [[ -f "${ARGOCD_DIR}/values.slack.yaml" ]]; then
+
+        log_info "Found values.slack.yaml — Slack notifications will be configured."
+
+        values_args+=( --values "${ARGOCD_DIR}/values.slack.yaml" )
+
+    else
+
+        log_info "No values.slack.yaml — Slack is off; the in-cluster launchpad-sink webhook is still configured."
+
+        log_info "See values.slack.yaml.example to enable Slack."
+
+    fi
 
     echo
 
-    if helm status argocd \
-        --namespace argocd >/dev/null 2>&1; then
+    if helm status argocd --namespace argocd >/dev/null 2>&1; then
 
-        log_warn "ArgoCD is already installed."
+        log_info "ArgoCD is already installed — upgrading to match values.yaml..."
 
-        echo
+    else
 
-        return
+        log_info "Installing ArgoCD..."
 
     fi
+
+    echo
 
     if helm upgrade \
         --install argocd \
         argo/argo-cd \
         --namespace argocd \
-        --values "${ARGOCD_DIR}/values.yaml"
+        "${values_args[@]}"
     then
 
         echo

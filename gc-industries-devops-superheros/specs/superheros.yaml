@@ -28,6 +28,29 @@ owner: gc-industries
 mesh:
   enabled: true
 
+# Who hears about this application, and when.
+#
+# The stages split across the two halves of the platform, and the split is the
+# point. `onboarded` and `requested` are sent by the CLI at the moment it writes
+# these files — intent, nothing more; the commit may not even be pushed yet.
+# `deploying`, `healthy` and `failed` are sent by ArgoCD from the cluster, and
+# they are the only ones that can honestly say what happened, because ArgoCD is
+# the only thing that deploys. `onboard` renders the ArgoCD half into
+# apps/superheros/application.yaml as subscription annotations.
+#
+# `webhook` names a service the platform configured, never a URL — an
+# incoming-webhook URL is a credential, and this file is pushed to GitHub.
+# launchpad-sink is the in-cluster JSON receiver, so this works on a laptop
+# with no Slack account. For Slack, either point webhook at `slack-incoming`
+# (an incoming-webhook URL, two minutes to set up) or set `slack: <channel>`
+# (needs a bot token); see platform/gitops/argocd/values.slack.yaml.example.
+#
+# `stages` is omitted, which means all five. Narrowing it is how you stop being
+# told your own deploys failed.
+notify:
+  enabled: true
+  webhook: launchpad-sink
+
 services:
   - name: frontend
     image: docker.io/dockergc00/superheros-frontend

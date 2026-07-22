@@ -100,3 +100,8 @@ infra/k8s/secrets/*.yaml
 
 test-utils.sh
 
+
+# LaunchPad — notification credentials (Phase 5).
+# An incoming-webhook URL or a Slack bot token is not a pointer to a secret, it
+# IS the secret. The committed example file next to it shows the shape.
+gc-industries-devops-superheros/platform/gitops/argocd/values.slack.yaml

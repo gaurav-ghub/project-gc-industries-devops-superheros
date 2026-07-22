@@ -6,12 +6,12 @@ package onboard
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/gc-ghub/launchpad/internal/gitops"
+	"github.com/gc-ghub/launchpad/internal/notify"
 	"github.com/gc-ghub/launchpad/internal/policy"
 	"github.com/gc-ghub/launchpad/internal/render"
 	"github.com/gc-ghub/launchpad/internal/spec"
@@ -28,6 +28,7 @@ type Options struct {
 	PathPrefix string // repo-relative prefix for ArgoCD paths ("" = auto-detect)
 	PolicyDir  string // override the Kyverno policy directory
 	SkipPolicy bool   // break glass: report policy violations but do not block
+	NoNotify   bool   // do not send the CLI notification
 }
 
 // Run drives onboarding and writes the GitOps files. If opts.From is set it
@@ -123,6 +124,15 @@ func finish(opts Options, app spec.App) error {
 	for _, w := range gated.MeshWarnings() {
 		render.Warn(w)
 	}
+	for _, w := range gated.NotifyWarnings() {
+		render.Warn(w)
+	}
+	// Onboarding regenerates, which is the whole contract — but a live traffic
+	// split is the one thing worth being told about before it is overwritten,
+	// because unlike a tag nobody wrote it down in the spec on purpose.
+	for _, w := range gitops.WeightDrift(opts.Root, gated) {
+		render.Warn(w)
+	}
 	if err := policy.Gate(policy.Options{
 		Root: opts.Root, Dir: opts.PolicyDir, Skip: opts.SkipPolicy,
 	}, gated); err != nil {
@@ -147,13 +157,19 @@ func finish(opts Options, app spec.App) error {
 	}
 
 	if opts.Commit {
-		if err := commit(opts.Root, app.Name, written); err != nil {
+		if err := gitops.Commit(opts.Root, written, "launchpad: onboard "+app.Name); err != nil {
 			render.Warn("commit skipped: " + err.Error())
 		} else {
-			render.Success("staged and committed (not pushed)")
+			render.Success("staged and committed, not pushed — " + gitops.HeadSubject(opts.Root))
 		}
 	} else {
 		render.Info("not committed — review the files, then commit when ready")
+	}
+
+	if !opts.NoNotify {
+		e := notify.New(spec.StageOnboarded, gated)
+		e.Detail = fmt.Sprintf("%d service(s) registered", len(app.Services))
+		notify.Send(gated, e)
 	}
 
 	svcNames := ""
@@ -176,6 +192,11 @@ func finish(opts Options, app spec.App) error {
 	if canaries := app.CanaryServices(); len(canaries) > 0 {
 		rows = append(rows, [2]string{"Canary", render.Value(strings.Join(canaries, ", "))})
 		next = append(next, "launchpad canary status "+app.Name+"   to see the traffic split")
+	}
+	if app.Notify.Enabled {
+		rows = append(rows, [2]string{"Notify", render.Value(strings.Join(app.Notify.Recipients(), "  ")) +
+			"  (" + strings.Join(app.Notify.StageNames(), ", ") + ")"})
+		next = append(next, "launchpad notify status "+app.Name+"   to see who hears about it and when")
 	}
 	if app.Mesh.Enabled {
 		rows = append(rows, [2]string{"Mesh", "istio — namespace gets istio-injection=enabled"})
@@ -213,18 +234,6 @@ func serviceForm(n int) (spec.Service, error) {
 	s.Port, _ = strconv.Atoi(portStr)
 	s.Replicas, _ = strconv.Atoi(replStr)
 	return s, nil
-}
-
-func commit(root, name string, files []string) error {
-	args := append([]string{"-C", root, "add"}, files...)
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("git add: %s", out)
-	}
-	msg := "launchpad: onboard " + name
-	if out, err := exec.Command("git", "-C", root, "commit", "-m", msg).CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit: %s", out)
-	}
-	return nil
 }
 
 // --- validators ---

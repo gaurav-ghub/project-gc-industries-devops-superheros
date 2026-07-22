@@ -8,4 +8,5 @@ package version
 //	v0.2.0  release flow (per-service image promotion)
 //	v0.3.0  Kyverno policy gate (pre-commit validation of generated manifests)
 //	v0.4.0  canary (per-service versions + Istio traffic weights)
-const Current = "v0.4.0"
+//	v0.5.0  developer notifications (CLI intent + ArgoCD outcome)
+const Current = "v0.5.0"

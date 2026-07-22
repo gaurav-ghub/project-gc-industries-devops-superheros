@@ -1,0 +1,83 @@
+###############################################################################
+# ArgoCD notifications — Slack (OPTIONAL, NOT COMMITTED)
+#
+# Copy to values.slack.yaml and fill in. platform/gitops/argocd/install.sh
+# passes it to `helm upgrade` automatically when the file exists, and does
+# nothing when it does not — so a platform with no Slack account installs and
+# verifies exactly the same way.
+#
+#     cp values.slack.yaml.example values.slack.yaml
+#     # edit, then re-run the bootstrap (or just the gitops module)
+#
+# values.slack.yaml is git-ignored. Everything in it is a credential: an
+# incoming-webhook URL is not a pointer to a secret, it IS the secret — anyone
+# holding it can post to the channel.
+#
+# There are two ways in, and they are not equivalent.
+###############################################################################
+
+notifications:
+  secret:
+    items:
+      # -- Option A: a Slack incoming webhook. Two minutes to set up, no Slack
+      # app, no OAuth, no admin approval. The channel is fixed by the URL, so
+      # every subscriber lands in the same channel — fine for one team, wrong
+      # for a platform with many.
+      #
+      # In specs/<app>.yaml this is:   notify: { enabled: true, webhook: slack-incoming }
+      #
+      # Replace the angle-bracket parts with what Slack gives you. They are
+      # written this way deliberately — see the note at the bottom of this file.
+      slack-incoming-url: https://hooks.slack.com/services/<WORKSPACE-ID>/<CHANNEL-ID>/<WEBHOOK-TOKEN>
+
+      # -- Option B: a Slack bot token (xoxb-...) from a Slack app with
+      # chat:write, invited to each channel. More setup, and the only option
+      # where each application chooses its own channel.
+      #
+      # In specs/<app>.yaml this is:   notify: { enabled: true, slack: my-channel }
+      #
+      # The real value starts with the four letters x-o-x-b and a hyphen; it is
+      # not spelled out here for the reason at the bottom of this file.
+      slack-token: <SLACK-BOT-TOKEN>
+
+  notifiers:
+    # Option A. Declared as a generic webhook service because an incoming
+    # webhook is a URL, not the Slack API.
+    service.webhook.slack-incoming: |
+      url: $slack-incoming-url
+      headers:
+      - name: Content-Type
+        value: application/json
+
+    # Option B.
+    service.slack: |
+      token: $slack-token
+
+###############################################################################
+# Delete whichever option you are not using — including its secret item.
+#
+# A service that references a secret key which does not exist is a
+# configuration error the notifications controller reports at delivery time,
+# not at install time. It will look like "the notification silently did not
+# arrive", which is the single hardest failure to debug in this whole feature.
+#
+# ---------------------------------------------------------------------------
+# Why the placeholders above look like <THIS> instead of like a real value
+#
+# GitHub push protection scans for the *shape* of a credential, not for whether
+# it is real. The first version of this file used realistic-looking dummies —
+# a hooks.slack.com URL with T........ / B........ / 24 characters, and a
+# token beginning with the usual four-letter prefix — and GitHub correctly
+# rejected the push as "Push cannot contain secrets", naming these two lines.
+#
+# It was right to. A scanner that trusted a file for being named ".example"
+# would be trivially defeated by renaming a real one. So an example file must
+# not contain anything a secret scanner could match, which means the
+# placeholders have to be structurally impossible: angle brackets are not valid
+# in either format.
+#
+# The corollary matters more than the fix: if you ever paste a real value here
+# instead of into values.slack.yaml, push protection is the thing that will
+# catch it. Do not add an allowlist entry to get past it.
+# ---------------------------------------------------------------------------
+###############################################################################

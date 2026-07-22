@@ -15,12 +15,12 @@ package canary
 
 import (
 	"fmt"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/gc-ghub/launchpad/internal/gitops"
+	"github.com/gc-ghub/launchpad/internal/notify"
 	"github.com/gc-ghub/launchpad/internal/policy"
 	"github.com/gc-ghub/launchpad/internal/render"
 	"github.com/gc-ghub/launchpad/internal/spec"
@@ -37,6 +37,8 @@ type Options struct {
 	DryRun     bool           // report what would change, write nothing
 	PolicyDir  string         // override the Kyverno policy directory
 	SkipPolicy bool           // break glass: report policy violations but do not block
+	NoSpec     bool           // do not write the new weights back into specs/<app>.yaml
+	NoNotify   bool           // do not send the CLI notification
 }
 
 // ParseWeights reads the --weights form "v1=90,v2=10".
@@ -128,18 +130,42 @@ func Shift(opts Options) error {
 	if change, err = gitops.WriteWeights(opts.Root, change); err != nil {
 		return err
 	}
+
+	// Close the loop on the input file too. A weight is the one field that
+	// drifts between specs/ and apps/, because it is operational state a human
+	// moves rather than an intention they wrote down — and a stale spec is
+	// exactly what silently reverted Phase 1's namespace fix.
+	if !opts.NoSpec {
+		p, err := gitops.SyncSpecWeights(opts.Root, opts.App, opts.Service, opts.Weights)
+		switch {
+		case err != nil:
+			render.Warn("could not update the spec file: " + err.Error())
+			render.Detail("the generated files are correct; specs/" + opts.App + ".yaml now disagrees and a re-onboard would reset this split")
+		case p != "":
+			change.Written = append(change.Written, p)
+		}
+	}
+
 	for _, w := range change.Written {
 		render.Success("wrote " + w)
 	}
 
 	if opts.Commit {
-		if err := commit(opts.Root, change); err != nil {
+		msg := fmt.Sprintf("launchpad: canary %s/%s %s", change.App.Name, change.Service, summarizePlain(change.Deltas))
+		if err := gitops.Commit(opts.Root, change.Written, msg); err != nil {
 			render.Warn("commit skipped: " + err.Error())
 		} else {
-			render.Success("staged and committed (not pushed)")
+			render.Success("staged and committed, not pushed — " + gitops.HeadSubject(opts.Root))
 		}
 	} else {
 		render.Info("not committed — review the diff, then commit when ready")
+	}
+
+	if !opts.NoNotify {
+		e := notify.New(spec.StageRequested, change.App)
+		e.Service = change.Service
+		e.Detail = "traffic shift " + summarizePlain(change.Deltas) + " (no pods restart)"
+		notify.Send(change.App, e)
 	}
 
 	render.Dashboard("Traffic shift prepared",
@@ -218,18 +244,6 @@ func summarize(deltas []gitops.WeightDelta) string {
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "  ")
-}
-
-func commit(root string, c gitops.WeightChange) error {
-	args := append([]string{"-C", root, "add"}, c.Written...)
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("git add: %s", out)
-	}
-	msg := fmt.Sprintf("launchpad: canary %s/%s %s", c.App.Name, c.Service, summarizePlain(c.Deltas))
-	if out, err := exec.Command("git", "-C", root, "commit", "-m", msg).CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit: %s", out)
-	}
-	return nil
 }
 
 func summarizePlain(deltas []gitops.WeightDelta) string {

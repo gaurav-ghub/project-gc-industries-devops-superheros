@@ -6,6 +6,9 @@ repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.g
 owner: gc-industries
 mesh:
     enabled: true
+notify:
+    enabled: true
+    webhook: launchpad-sink
 services:
     - name: frontend
       image: docker.io/dockergc00/superheros-frontend

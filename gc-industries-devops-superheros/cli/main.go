@@ -16,6 +16,7 @@ import (
 
 	"github.com/gc-ghub/launchpad/internal/canary"
 	"github.com/gc-ghub/launchpad/internal/gitops"
+	"github.com/gc-ghub/launchpad/internal/notify"
 	"github.com/gc-ghub/launchpad/internal/onboard"
 	"github.com/gc-ghub/launchpad/internal/policy"
 	"github.com/gc-ghub/launchpad/internal/release"
@@ -42,6 +43,8 @@ func main() {
 		err = cmdRelease(args)
 	case "canary":
 		err = cmdCanary(args)
+	case "notify":
+		err = cmdNotify(args)
 	case "policy":
 		err = cmdPolicy(args)
 	case "list", "ls":
@@ -72,10 +75,11 @@ func cmdOnboard(args []string) error {
 	prefix := fs.String("path-prefix", "", "repo-relative prefix for ArgoCD source paths (default: auto-detect)")
 	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
 	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
+	noNotify := fs.Bool("no-notify", false, "do not send the CLI notification for this run")
 	_ = fs.Parse(args)
 	return onboard.Run(onboard.Options{
 		Root: *root, GitopsRepo: *repo, Commit: *commit, From: *from, PathPrefix: *prefix,
-		PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
+		PolicyDir: *policyDir, SkipPolicy: *skipPolicy, NoNotify: *noNotify,
 	})
 }
 
@@ -113,6 +117,7 @@ func cmdRelease(args []string) error {
 	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
 	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
 	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
+	noNotify := fs.Bool("no-notify", false, "do not send the CLI notification for this run")
 	app, err := parsePositional(fs, args, "launchpad release <app> --service <svc> --tag <tag>")
 	if err != nil {
 		return err
@@ -120,8 +125,37 @@ func cmdRelease(args []string) error {
 	return release.Run(release.Options{
 		Root: *root, App: app, Service: *service, Version: *ver, Tag: *tag,
 		Commit: *commit, DryRun: *dryRun,
-		PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
+		PolicyDir: *policyDir, SkipPolicy: *skipPolicy, NoNotify: *noNotify,
 	})
+}
+
+// cmdNotify is the developer-facing view of Phase 5: who hears about this
+// application, when, and which half of the platform tells them.
+func cmdNotify(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: launchpad notify status <app> | launchpad notify test <app>")
+	}
+	sub, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet("notify", flag.ExitOnError)
+	root := fs.String("root", ".", "platform repo root")
+
+	switch sub {
+	case "status":
+		app, err := parsePositional(fs, rest, "launchpad notify status <app>")
+		if err != nil {
+			return err
+		}
+		return notify.Status(*root, app)
+	case "test":
+		app, err := parsePositional(fs, rest, "launchpad notify test <app>")
+		if err != nil {
+			return err
+		}
+		return notify.TestSend(*root, app)
+	default:
+		return fmt.Errorf("unknown notify subcommand %q — use status or test", sub)
+	}
 }
 
 // cmdCanary is the traffic half of the platform: `canary status` shows how an
@@ -147,6 +181,8 @@ func cmdCanary(args []string) error {
 	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
 	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
 	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
+	noSpec := fs.Bool("no-spec", false, "do not write the new weights back into specs/<app>.yaml")
+	noNotify := fs.Bool("no-notify", false, "do not send the CLI notification for this run")
 
 	switch sub {
 	case "status":
@@ -172,6 +208,7 @@ func cmdCanary(args []string) error {
 			Root: *root, App: app, Service: *service, Weights: w,
 			Commit: *commit, DryRun: *dryRun,
 			PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
+			NoSpec: *noSpec, NoNotify: *noNotify,
 		})
 
 	case "promote":
@@ -199,6 +236,7 @@ func cmdCanary(args []string) error {
 			Root: *root, App: app, Service: *service, Weights: w,
 			Commit: *commit, DryRun: *dryRun,
 			PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
+			NoSpec: *noSpec, NoNotify: *noNotify,
 		})
 
 	default:
@@ -367,6 +405,8 @@ Commands:
   canary status <app> Show how each service's traffic is split
   canary set <app>    Change a canary service's traffic weights
   canary promote <app>Send all of a canary service's traffic to one version
+  notify status <app> Show who hears about an application, and when
+  notify test <app>   Send a test notification through this shell's webhook
   policy list         Show the Kyverno policies the platform enforces
   policy check <app>  Evaluate a registered application against them
   list                List registered applications
@@ -397,16 +437,27 @@ Canary flags:
   --root <dir>          platform repo root (default ".")
   --dry-run             report what would change without writing
   --commit              stage + commit changed files (never pushes)
+  --no-spec             leave specs/<app>.yaml alone (a re-onboard will then
+                        reset the split back to what the spec still says)
 
 Policy flags (onboard, release, canary and policy):
   --policy-dir <dir>    Kyverno policy directory (default <root>/` + policy.DefaultDir + `)
   --skip-policy         break glass: report violations but do not block
+
+Notification flags (onboard, release, canary):
+  --no-notify           do not send this run's CLI notification
 
 Onboard, release and canary refuse to write anything when an Enforce-mode
 Kyverno policy would reject the manifests they generate.
 
 A release replaces pods; a canary shift replaces none — it only rewrites the
 Istio VirtualService weights, so traffic moves without a restart.
+
+Notifications come from two places and never from one. The CLI reports intent —
+onboarded, requested — the moment it writes the files; ArgoCD reports outcome —
+deploying, healthy, failed — because it is the only thing that deploys. Set
+` + notify.EnvSlackWebhook + ` (a Slack incoming-webhook URL) or
+` + notify.EnvWebhook + ` (any JSON receiver) to enable the CLI half.
 
 Examples:
   launchpad release superheros --service catalog --version v2 --tag v2-abc1234

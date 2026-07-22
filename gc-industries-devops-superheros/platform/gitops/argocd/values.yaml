@@ -1,0 +1,198 @@
+###############################################################################
+# ArgoCD values — GC Industries Cloud Native Platform
+#
+# Everything below configures the *outcome* half of LaunchPad's developer
+# notifications (Phase 5).
+#
+# The platform owns three things here: which notification services exist, what
+# a message looks like, and which cluster conditions are worth a message. What
+# it deliberately does NOT own is who receives them — that is per-application,
+# declared in specs/<app>.yaml and rendered by `launchpad onboard` into
+# subscription annotations on apps/<app>/application.yaml.
+#
+# Why this half exists at all: the CLI knows a developer asked for something,
+# and nothing more. Only ArgoCD deploys, so only ArgoCD can say whether the
+# deploy worked. A CLI that printed "deployed" after writing a YAML file would
+# be reporting a fact it cannot have.
+#
+# Author: Gaurav Chaurasia
+###############################################################################
+
+notifications:
+  enabled: true
+
+  # Used by {{.context.argocdUrl}} in the templates below. The platform is
+  # local, so this is the documented port-forward address.
+  argocdUrl: https://localhost:8080
+
+  #--------------------------------------------------------------------------
+  # Services — where a message can be delivered.
+  #
+  # launchpad-sink is a plain JSON receiver inside the cluster. It exists so
+  # that notifications are verifiable on a laptop with no Slack workspace, no
+  # bot token and no internet account: deploy the sink, subscribe an app to it,
+  # and `kubectl logs` shows the exact payload ArgoCD produced.
+  #
+  # Slack lives in values.slack.yaml (not committed) — see
+  # values.slack.yaml.example. It is separate because a token or an
+  # incoming-webhook URL is a credential, and a credential does not belong in a
+  # file that is pushed to GitHub.
+  #--------------------------------------------------------------------------
+  notifiers:
+    service.webhook.launchpad-sink: |
+      url: http://launchpad-notify-sink.argocd.svc.cluster.local:8080
+      headers:
+      - name: Content-Type
+        value: application/json
+
+  #--------------------------------------------------------------------------
+  # Templates — what a message says.
+  #
+  # Each template carries a body for every service shape the platform supports,
+  # and ArgoCD uses whichever one matches the service the subscription named.
+  # Every message states which half of the platform produced it, because a
+  # developer reading their phone at 2am should not have to work out whether
+  # "catalog v2" means "asked for" or "running".
+  #--------------------------------------------------------------------------
+  templates:
+    template.launchpad-deploying: |
+      message: |
+        LaunchPad · {{.app.metadata.name}} is deploying — ArgoCD is syncing revision {{.app.status.sync.revision}}.
+      webhook:
+        launchpad-sink:
+          method: POST
+          body: |
+            {
+              "stage": "deploying",
+              "source": "argocd",
+              "app": "{{.app.metadata.name}}",
+              "namespace": "{{.app.spec.destination.namespace}}",
+              "sync": "{{.app.status.sync.status}}",
+              "health": "{{.app.status.health.status}}",
+              "revision": "{{.app.status.sync.revision}}",
+              "text": "LaunchPad - {{.app.metadata.name}} is deploying (ArgoCD is syncing)."
+            }
+        slack-incoming:
+          method: POST
+          body: |
+            {"text": ":hourglass_flowing_sand: LaunchPad · *{{.app.metadata.name}}* is deploying — ArgoCD is syncing `{{.app.status.sync.revision}}`."}
+      slack:
+        attachments: |
+          [{
+            "title": "{{.app.metadata.name}} — deploying",
+            "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#4a90d9",
+            "fields": [
+              {"title": "Sync",     "value": "{{.app.status.sync.status}}",   "short": true},
+              {"title": "Health",   "value": "{{.app.status.health.status}}", "short": true},
+              {"title": "Revision", "value": "{{.app.status.sync.revision}}", "short": false}
+            ]
+          }]
+
+    template.launchpad-healthy: |
+      message: |
+        LaunchPad · {{.app.metadata.name}} is deployed and healthy at revision {{.app.status.sync.revision}}.
+      webhook:
+        launchpad-sink:
+          method: POST
+          body: |
+            {
+              "stage": "healthy",
+              "source": "argocd",
+              "app": "{{.app.metadata.name}}",
+              "namespace": "{{.app.spec.destination.namespace}}",
+              "sync": "{{.app.status.sync.status}}",
+              "health": "{{.app.status.health.status}}",
+              "revision": "{{.app.status.sync.revision}}",
+              "text": "LaunchPad - {{.app.metadata.name}} is deployed and healthy."
+            }
+        slack-incoming:
+          method: POST
+          body: |
+            {"text": ":white_check_mark: LaunchPad · *{{.app.metadata.name}}* is deployed and healthy at `{{.app.status.sync.revision}}`."}
+      slack:
+        attachments: |
+          [{
+            "title": "{{.app.metadata.name}} — healthy",
+            "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#18be52",
+            "fields": [
+              {"title": "Sync",     "value": "{{.app.status.sync.status}}",   "short": true},
+              {"title": "Health",   "value": "{{.app.status.health.status}}", "short": true},
+              {"title": "Revision", "value": "{{.app.status.sync.revision}}", "short": false}
+            ]
+          }]
+
+    template.launchpad-failed: |
+      message: |
+        LaunchPad · {{.app.metadata.name}} FAILED — sync {{.app.status.sync.status}}, health {{.app.status.health.status}}.
+      webhook:
+        launchpad-sink:
+          method: POST
+          body: |
+            {
+              "stage": "failed",
+              "source": "argocd",
+              "app": "{{.app.metadata.name}}",
+              "namespace": "{{.app.spec.destination.namespace}}",
+              "sync": "{{.app.status.sync.status}}",
+              "health": "{{.app.status.health.status}}",
+              "revision": "{{.app.status.sync.revision}}",
+              "text": "LaunchPad - {{.app.metadata.name}} FAILED (sync {{.app.status.sync.status}}, health {{.app.status.health.status}})."
+            }
+        slack-incoming:
+          method: POST
+          body: |
+            {"text": ":x: LaunchPad · *{{.app.metadata.name}}* failed — sync `{{.app.status.sync.status}}`, health `{{.app.status.health.status}}`."}
+      slack:
+        attachments: |
+          [{
+            "title": "{{.app.metadata.name}} — failed",
+            "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#e01e5a",
+            "fields": [
+              {"title": "Sync",     "value": "{{.app.status.sync.status}}",   "short": true},
+              {"title": "Health",   "value": "{{.app.status.health.status}}", "short": true},
+              {"title": "Revision", "value": "{{.app.status.sync.revision}}", "short": false}
+            ]
+          }]
+
+  #--------------------------------------------------------------------------
+  # Triggers — when a message is worth sending.
+  #
+  # These four names are the contract LaunchPad's notify.stages compiles to:
+  #
+  #   deploying  ->  on-sync-running
+  #   healthy    ->  on-deployed
+  #   failed     ->  on-health-degraded  AND  on-sync-failed
+  #
+  # `failed` maps to two because an application has two distinct ways to fail:
+  # the sync can error, or the sync can succeed onto a workload that then goes
+  # Degraded. Subscribing to only one is how a CrashLoopBackOff goes unreported.
+  #
+  # on-deployed carries `oncePer: revision` so a healthy application that ArgoCD
+  # re-reconciles every three minutes does not notify anyone every three
+  # minutes. Without it the first useful message would train everyone to ignore
+  # the channel by the end of the afternoon.
+  #--------------------------------------------------------------------------
+  triggers:
+    trigger.on-sync-running: |
+      - description: A sync has started
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Running']
+        send: [launchpad-deploying]
+
+    trigger.on-deployed: |
+      - description: The application is synced and healthy
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        oncePer: app.status.sync.revision
+        send: [launchpad-healthy]
+
+    trigger.on-health-degraded: |
+      - description: The application has degraded
+        when: app.status.health.status == 'Degraded'
+        send: [launchpad-failed]
+
+    trigger.on-sync-failed: |
+      - description: The sync itself failed
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+        send: [launchpad-failed]

@@ -277,6 +277,7 @@ type App struct {
 	Repository string    `yaml:"repository"`
 	Owner      string    `yaml:"owner"`
 	Mesh       Mesh      `yaml:"mesh,omitempty"`
+	Notify     Notify    `yaml:"notify,omitempty"`
 	Services   []Service `yaml:"services"`
 }
 
@@ -378,6 +379,9 @@ func (a App) Validate() error {
 	}
 	if len(a.Services) == 0 {
 		return fmt.Errorf("app %q must declare at least one service", a.Name)
+	}
+	if err := validateNotify(a.Notify); err != nil {
+		return err
 	}
 	seen := map[string]bool{}
 	for _, s := range a.Services {
