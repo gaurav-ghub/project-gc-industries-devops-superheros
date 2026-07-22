@@ -14,18 +14,21 @@ import (
 	"strings"
 
 	"github.com/gc-ghub/launchpad/internal/gitops"
+	"github.com/gc-ghub/launchpad/internal/policy"
 	"github.com/gc-ghub/launchpad/internal/render"
 	"github.com/gc-ghub/launchpad/internal/version"
 )
 
 // Options configures a release.
 type Options struct {
-	Root    string // platform repo root
-	App     string // registered application name
-	Service string // the one service to promote
-	Tag     string // the image tag to promote to
-	Commit  bool   // stage + commit the changed files (never pushes)
-	DryRun  bool   // report what would change, write nothing
+	Root       string // platform repo root
+	App        string // registered application name
+	Service    string // the one service to promote
+	Tag        string // the image tag to promote to
+	Commit     bool   // stage + commit the changed files (never pushes)
+	DryRun     bool   // report what would change, write nothing
+	PolicyDir  string // override the Kyverno policy directory
+	SkipPolicy bool   // break glass: report policy violations but do not block
 }
 
 // Run promotes one service to a new image tag and prints the result.
@@ -40,14 +43,11 @@ func Run(opts Options) error {
 		return fmt.Errorf("--tag is required (which image tag are you promoting to?)")
 	}
 
-	// A dry run must not write, so resolve it against the loaded spec instead of
-	// SetServiceTag. This is also the hook Phase 3's policy gate will use to
-	// inspect a release before it is allowed to touch the repo.
-	if opts.DryRun {
-		return dryRun(opts)
-	}
-
-	bump, err := gitops.SetServiceTag(opts.Root, opts.App, opts.Service, opts.Tag)
+	// Plan first, always. A release is only allowed to touch the repo after the
+	// policy gate has seen the manifests it would produce, so the plan/gate/write
+	// order is the same whether this is a dry run or the real thing — a dry run
+	// is simply the same pipeline stopped one step early.
+	bump, err := gitops.PlanServiceTag(opts.Root, opts.App, opts.Service, opts.Tag)
 	if err != nil {
 		return err
 	}
@@ -57,6 +57,24 @@ func Run(opts Options) error {
 			render.Value(opts.Service), render.Value(opts.Tag)))
 		render.Info("no files changed, nothing to commit")
 		return nil
+	}
+
+	render.Step(fmt.Sprintf("would bump %s  %s → %s",
+		render.Value(bump.Service), bump.OldTag, render.Value(bump.NewTag)))
+
+	if err := policy.Gate(policy.Options{
+		Root: opts.Root, Dir: opts.PolicyDir, Skip: opts.SkipPolicy,
+	}, bump.App); err != nil {
+		return err
+	}
+
+	if opts.DryRun {
+		render.Info("dry run — no files written")
+		return nil
+	}
+
+	if bump, err = gitops.WriteBump(opts.Root, bump); err != nil {
+		return err
 	}
 
 	render.Step(fmt.Sprintf("%s  %s → %s",
@@ -93,29 +111,6 @@ func Run(opts Options) error {
 			"launchpad status " + bump.App.Name + "   to watch only " + bump.Service + " roll",
 		},
 	)
-	return nil
-}
-
-// dryRun reports the change without writing anything.
-func dryRun(opts Options) error {
-	app, err := gitops.Load(opts.Root, opts.App)
-	if err != nil {
-		return fmt.Errorf("no registered app %q — run `launchpad list` to see what is registered", opts.App)
-	}
-	i := app.FindService(opts.Service)
-	if i < 0 {
-		return fmt.Errorf("app %q has no service %q — services are: %s",
-			opts.App, opts.Service, join(app.ServiceNames()))
-	}
-	old := app.Services[i].Tag
-	if old == opts.Tag {
-		render.Warn(fmt.Sprintf("%s is already at %s — nothing to do",
-			render.Value(opts.Service), render.Value(opts.Tag)))
-		return nil
-	}
-	render.Step(fmt.Sprintf("would bump %s  %s → %s",
-		render.Value(opts.Service), old, render.Value(opts.Tag)))
-	render.Info("dry run — no files written")
 	return nil
 }
 

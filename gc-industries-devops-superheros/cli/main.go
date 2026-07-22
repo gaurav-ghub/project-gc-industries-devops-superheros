@@ -11,9 +11,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/gc-ghub/launchpad/internal/gitops"
 	"github.com/gc-ghub/launchpad/internal/onboard"
+	"github.com/gc-ghub/launchpad/internal/policy"
 	"github.com/gc-ghub/launchpad/internal/release"
 	"github.com/gc-ghub/launchpad/internal/render"
 	"github.com/gc-ghub/launchpad/internal/version"
@@ -36,6 +39,8 @@ func main() {
 		err = cmdOnboard(args)
 	case "release":
 		err = cmdRelease(args)
+	case "policy":
+		err = cmdPolicy(args)
 	case "list", "ls":
 		err = cmdList(args)
 	case "status":
@@ -62,9 +67,12 @@ func cmdOnboard(args []string) error {
 	commit := fs.Bool("commit", false, "stage and commit the generated files (never pushes)")
 	from := fs.String("from", "", "non-interactive: load the app spec from this YAML file")
 	prefix := fs.String("path-prefix", "", "repo-relative prefix for ArgoCD source paths (default: auto-detect)")
+	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
+	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
 	_ = fs.Parse(args)
 	return onboard.Run(onboard.Options{
 		Root: *root, GitopsRepo: *repo, Commit: *commit, From: *from, PathPrefix: *prefix,
+		PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
 	})
 }
 
@@ -99,6 +107,8 @@ func cmdRelease(args []string) error {
 	tag := fs.String("tag", "", "the image tag to promote to")
 	commit := fs.Bool("commit", false, "stage and commit the changed files (never pushes)")
 	dryRun := fs.Bool("dry-run", false, "report what would change without writing")
+	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
+	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
 	app, err := parsePositional(fs, args, "launchpad release <app> --service <svc> --tag <tag>")
 	if err != nil {
 		return err
@@ -106,7 +116,102 @@ func cmdRelease(args []string) error {
 	return release.Run(release.Options{
 		Root: *root, App: app, Service: *service, Tag: *tag,
 		Commit: *commit, DryRun: *dryRun,
+		PolicyDir: *policyDir, SkipPolicy: *skipPolicy,
 	})
+}
+
+// cmdPolicy is the standalone view of the gate: `policy list` shows what the
+// platform enforces, `policy check <app>` runs the same evaluation onboard and
+// release run, against an already-registered application.
+//
+// It exists because a gate that only ever speaks when it blocks you is hard to
+// trust. Being able to ask "what would you say about superheros right now?"
+// without staging a release is what makes the rules reviewable.
+func cmdPolicy(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: launchpad policy list | launchpad policy check <app>")
+	}
+	sub, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet("policy", flag.ExitOnError)
+	root := fs.String("root", ".", "platform repo root")
+	dir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
+
+	switch sub {
+	case "list":
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		return policyList(*root, *dir)
+	case "check":
+		app, err := parsePositional(fs, rest, "launchpad policy check <app>")
+		if err != nil {
+			return err
+		}
+		return policyCheck(*root, *dir, app)
+	default:
+		return fmt.Errorf("unknown policy subcommand %q — use list or check", sub)
+	}
+}
+
+func policyDir(root, dir string) string {
+	if dir != "" {
+		return dir
+	}
+	return filepath.Join(root, policy.DefaultDir)
+}
+
+func policyList(root, dir string) error {
+	d := policyDir(root, dir)
+	policies, err := policy.Load(d)
+	if err != nil {
+		return err
+	}
+	render.Banner(version.Current)
+	render.Section("Policies · " + d)
+	if len(policies) == 0 {
+		render.Warn("no ClusterPolicies found")
+		return nil
+	}
+	for _, p := range policies {
+		render.Step(render.Value(p.Name) + "  " + string(p.Action) +
+			fmt.Sprintf("  (%d rule(s), %s)", len(p.Rules), filepath.Base(p.Source)))
+		for _, r := range p.Rules {
+			render.Detail(fmt.Sprintf("%s [%s] kinds=%s ns=%s",
+				r.Name, r.Kind, strings.Join(r.Kinds, ","), nsList(r.Namespaces)))
+		}
+	}
+	return nil
+}
+
+func nsList(ns []string) string {
+	if len(ns) == 0 {
+		return "*"
+	}
+	return strings.Join(ns, ",")
+}
+
+func policyCheck(root, dir, name string) error {
+	d := policyDir(root, dir)
+	app, err := gitops.Load(root, name)
+	if err != nil {
+		return fmt.Errorf("no registered app %q (%v)", name, err)
+	}
+	policies, err := policy.Load(d)
+	if err != nil {
+		return err
+	}
+	render.Banner(version.Current)
+	render.Section("Policy check · " + app.Name)
+
+	app.ApplyDefaults()
+	rep := policy.Check(policies, app)
+	policy.Print(rep, d)
+
+	if n := len(rep.Blocking()); n > 0 {
+		return fmt.Errorf("%d enforced violation(s)", n)
+	}
+	return nil
 }
 
 func cmdList(args []string) error {
@@ -173,6 +278,8 @@ func usage() {
 Commands:
   onboard            Register and generate GitOps files for an application
   release <app>      Promote one service to a new image tag
+  policy list        Show the Kyverno policies the platform enforces
+  policy check <app> Evaluate a registered application against them
   list               List registered applications
   status <app>       Show an application's services and pods
   version            Print version
@@ -191,6 +298,13 @@ Release flags:
   --root <dir>          platform repo root (default ".")
   --dry-run             report what would change without writing
   --commit              stage + commit changed files (never pushes)
+
+Policy flags (onboard, release and policy):
+  --policy-dir <dir>    Kyverno policy directory (default <root>/` + policy.DefaultDir + `)
+  --skip-policy         break glass: report violations but do not block
+
+Onboard and release refuse to write anything when an Enforce-mode Kyverno
+policy would reject the manifests they generate.
 
 Example:
   launchpad release superheros --service catalog --tag v2-abc1234`)

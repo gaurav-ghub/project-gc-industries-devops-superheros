@@ -6,13 +6,39 @@
 #   name: superheros
 # services:
 #   - name: frontend
-#     image: dockergc00/superheros-frontend
-#     tag: latest
+#     image: docker.io/dockergc00/superheros-frontend
+#     tag: v1-9c6f729
 #     port: 8080
-#     replicas: 2
+#     replicas: 1
+#     resources: { requests: {...}, limits: {...} }   # optional
+#     security:  { runAsNonRoot: true, ... }          # optional
 
 app:
   name: app
+
+# Fallbacks for a service that declares no resources/security of its own.
+#
+# LaunchPad-generated values files always spell both blocks out per service, so
+# these are only reached by a hand-written values file. They are kept in sync
+# with the constants in cli/internal/spec — a service must never render without
+# them, because the require-resources and enforce-security-context policies in
+# infra/kyverno_policy/ reject a pod that is missing either.
+defaults:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  security:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    allowPrivilegeEscalation: false
+    dropCapabilities:
+      - ALL
 
 # One entry per service. Each renders a Deployment + Service.
 services: []

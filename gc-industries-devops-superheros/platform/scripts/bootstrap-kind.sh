@@ -27,6 +27,7 @@ source "${SCRIPT_DIR}/utils.sh"
 source "${PROJECT_ROOT}/platform/networking/install.sh"
 source "${PROJECT_ROOT}/platform/monitoring/install.sh"
 source "${PROJECT_ROOT}/platform/gitops/install.sh"
+source "${PROJECT_ROOT}/platform/security/install.sh"
 
 cluster_exists() {
 
@@ -135,6 +136,10 @@ main() {
     install_monitoring
 
     install_gitops
+
+    # Security runs after GitOps: it registers the ClusterPolicies as an ArgoCD
+    # Application, so ArgoCD has to exist first.
+    install_security
 
     log_success "Local platform bootstrap completed successfully."
 

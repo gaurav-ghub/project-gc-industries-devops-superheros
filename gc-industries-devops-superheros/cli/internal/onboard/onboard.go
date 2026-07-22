@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/gc-ghub/launchpad/internal/gitops"
+	"github.com/gc-ghub/launchpad/internal/policy"
 	"github.com/gc-ghub/launchpad/internal/render"
 	"github.com/gc-ghub/launchpad/internal/spec"
 	"github.com/gc-ghub/launchpad/internal/version"
@@ -24,6 +25,8 @@ type Options struct {
 	Commit     bool   // stage + commit generated files (default off)
 	From       string // non-interactive: load the app spec from this YAML file
 	PathPrefix string // repo-relative prefix for ArgoCD paths ("" = auto-detect)
+	PolicyDir  string // override the Kyverno policy directory
+	SkipPolicy bool   // break glass: report policy violations but do not block
 }
 
 // Run drives onboarding and writes the GitOps files. If opts.From is set it
@@ -107,6 +110,18 @@ func runFromFile(opts Options) error {
 func finish(opts Options, app spec.App) error {
 	if err := app.Validate(); err != nil {
 		render.Error(err.Error())
+		return err
+	}
+
+	// The gate runs against the defaulted spec — the same one Generate is about
+	// to render — so what is judged is exactly what would be written. An app that
+	// cannot pass the platform's policies is never onboarded in a half state:
+	// either all three files are written or none are.
+	gated := app
+	gated.ApplyDefaults()
+	if err := policy.Gate(policy.Options{
+		Root: opts.Root, Dir: opts.PolicyDir, Skip: opts.SkipPolicy,
+	}, gated); err != nil {
 		return err
 	}
 

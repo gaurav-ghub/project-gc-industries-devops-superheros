@@ -31,13 +31,114 @@ func ValidateTag(tag string) error {
 	return nil
 }
 
+// Platform defaults materialized into every service that does not set its own.
+//
+// These are deliberately written into apps/<name>/values.yaml rather than left
+// implicit in the chart: the policy gate validates what is actually declared,
+// and a reviewer reading a pull request can see the security posture in the
+// diff instead of having to know the chart's fallbacks.
+const (
+	DefaultRunAsUser  int64 = 10001
+	DefaultRunAsGroup int64 = 10001
+	DefaultFSGroup    int64 = 10001
+
+	DefaultRequestsCPU    = "50m"
+	DefaultRequestsMemory = "64Mi"
+	DefaultLimitsCPU      = "500m"
+	DefaultLimitsMemory   = "512Mi"
+)
+
+// ResourceList is one half of a container's resource block.
+type ResourceList struct {
+	CPU    string `yaml:"cpu"`
+	Memory string `yaml:"memory"`
+}
+
+// Resources mirrors the Kubernetes container resources shape so the chart can
+// pass it straight through with toYaml.
+type Resources struct {
+	Requests ResourceList `yaml:"requests"`
+	Limits   ResourceList `yaml:"limits"`
+}
+
+// Security is LaunchPad's single per-service security block. The chart splits it
+// into the two places Kubernetes wants it: the pod-level securityContext
+// (runAsNonRoot / runAsUser / runAsGroup / fsGroup) and the container-level one
+// (allowPrivilegeEscalation / capabilities).
+//
+// RunAsNonRoot and AllowPrivilegeEscalation are platform-mandated rather than
+// per-app knobs — ApplyDefaults always sets them, because an app that needs root
+// is a policy-exception conversation, not a values field.
+type Security struct {
+	RunAsNonRoot             bool     `yaml:"runAsNonRoot"`
+	RunAsUser                int64    `yaml:"runAsUser"`
+	RunAsGroup               int64    `yaml:"runAsGroup"`
+	FSGroup                  int64    `yaml:"fsGroup"`
+	AllowPrivilegeEscalation bool     `yaml:"allowPrivilegeEscalation"`
+	DropCapabilities         []string `yaml:"dropCapabilities"`
+}
+
 // Service is one independently-deployable component of an application.
 type Service struct {
-	Name     string `yaml:"name"`
-	Image    string `yaml:"image"`
-	Tag      string `yaml:"tag"`
-	Port     int    `yaml:"port"`
-	Replicas int    `yaml:"replicas"`
+	Name      string    `yaml:"name"`
+	Image     string    `yaml:"image"`
+	Tag       string    `yaml:"tag"`
+	Port      int       `yaml:"port"`
+	Replicas  int       `yaml:"replicas"`
+	Resources Resources `yaml:"resources"`
+	Security  Security  `yaml:"security"`
+}
+
+// Ref is the full image reference the chart will render for this service.
+func (s Service) Ref() string {
+	tag := s.Tag
+	if tag == "" {
+		tag = "latest"
+	}
+	return s.Image + ":" + tag
+}
+
+// ApplyDefaults fills in every field the platform is willing to decide on the
+// developer's behalf. It is idempotent, and is applied on every write so that a
+// registry entry written before these fields existed gains them on its next
+// release rather than silently rendering a policy-violating manifest.
+func (a *App) ApplyDefaults() {
+	for i := range a.Services {
+		s := &a.Services[i]
+		if s.Tag == "" {
+			s.Tag = "latest"
+		}
+		if s.Replicas == 0 {
+			s.Replicas = 1
+		}
+		if s.Resources.Requests.CPU == "" {
+			s.Resources.Requests.CPU = DefaultRequestsCPU
+		}
+		if s.Resources.Requests.Memory == "" {
+			s.Resources.Requests.Memory = DefaultRequestsMemory
+		}
+		if s.Resources.Limits.CPU == "" {
+			s.Resources.Limits.CPU = DefaultLimitsCPU
+		}
+		if s.Resources.Limits.Memory == "" {
+			s.Resources.Limits.Memory = DefaultLimitsMemory
+		}
+		if s.Security.RunAsUser == 0 {
+			s.Security.RunAsUser = DefaultRunAsUser
+		}
+		if s.Security.RunAsGroup == 0 {
+			s.Security.RunAsGroup = DefaultRunAsGroup
+		}
+		if s.Security.FSGroup == 0 {
+			s.Security.FSGroup = DefaultFSGroup
+		}
+		if len(s.Security.DropCapabilities) == 0 {
+			s.Security.DropCapabilities = []string{"ALL"}
+		}
+		// Platform-mandated, never inherited from the input.
+		s.Security.RunAsNonRoot = true
+		s.Security.AllowPrivilegeEscalation = false
+	}
 }
 
 // App is a registered application: a namespace + owner + a set of services.

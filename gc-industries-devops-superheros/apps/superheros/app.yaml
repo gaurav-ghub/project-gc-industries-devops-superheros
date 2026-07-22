@@ -6,27 +6,102 @@ repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.g
 owner: gc-industries
 services:
     - name: frontend
-      image: dockergc00/superheros-frontend
+      image: docker.io/dockergc00/superheros-frontend
       tag: v1-9c6f729
       port: 80
       replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
     - name: catalog
-      image: dockergc00/superheros-catalog
+      image: docker.io/dockergc00/superheros-catalog
       tag: v3-6f11a5d
       port: 8081
       replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
     - name: inventory
-      image: dockergc00/superheros-inventory
+      image: docker.io/dockergc00/superheros-inventory
       tag: v1-b9b34bb
       port: 8083
       replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
     - name: orders
-      image: dockergc00/superheros-orders
+      image: docker.io/dockergc00/superheros-orders
       tag: v1-df408cf
       port: 8082
       replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
     - name: payment
-      image: dockergc00/superheros-payment
+      image: docker.io/dockergc00/superheros-payment
       tag: v1-6f11a5d
       port: 8084
       replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL

@@ -149,11 +149,7 @@ func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]strin
 // and how* the app is deployed, which onboarding owns and a release must not
 // disturb. Shared by Generate and SetServiceTag so the two can never drift.
 func writeAppFiles(dir string, app *spec.App) ([]string, error) {
-	for i := range app.Services {
-		if app.Services[i].Tag == "" {
-			app.Services[i].Tag = "latest"
-		}
-	}
+	app.ApplyDefaults()
 
 	reg, err := yaml.Marshal(app)
 	if err != nil {
@@ -196,14 +192,14 @@ type Bump struct {
 	NoOp    bool     // true when the service was already at NewTag
 }
 
-// SetServiceTag bumps exactly one service's image tag in a registered
-// application and rewrites the registry entry and chart values.
+// PlanServiceTag works out what a release would change, without touching disk.
 //
-// This is the file half of `launchpad release`: one line changes, ArgoCD
-// notices, and only that service's Deployment rolls. The ArgoCD Application is
-// left untouched — a release changes *what image runs*, never where or how the
-// application is deployed.
-func SetServiceTag(root, appName, svcName, tag string) (Bump, error) {
+// Separating the plan from the write is what makes the Phase 3 policy gate
+// possible: the caller gets the post-bump application, hands it to the gate, and
+// only calls WriteBump once the policies have passed. It also means --dry-run
+// and a real release share one code path, so the two can never disagree about
+// what a release does.
+func PlanServiceTag(root, appName, svcName, tag string) (Bump, error) {
 	var b Bump
 	if err := spec.ValidateTag(tag); err != nil {
 		return b, err
@@ -231,13 +227,34 @@ func SetServiceTag(root, appName, svcName, tag string) (Bump, error) {
 	if err := app.Validate(); err != nil {
 		return b, err
 	}
+	b.App = app
+	return b, nil
+}
 
-	written, err := writeAppFiles(AppDir(root, appName), &app)
+// WriteBump commits a planned bump to disk, rewriting the registry entry and
+// chart values. The ArgoCD Application is left untouched — a release changes
+// *what image runs*, never where or how the application is deployed.
+func WriteBump(root string, b Bump) (Bump, error) {
+	if b.NoOp {
+		return b, nil
+	}
+	written, err := writeAppFiles(AppDir(root, b.App.Name), &b.App)
 	if err != nil {
 		return b, err
 	}
-	b.App, b.Written = app, written
+	b.Written = written
 	return b, nil
+}
+
+// SetServiceTag plans and writes a release in one step. Callers that need to
+// inspect the result before it reaches disk — the policy gate, --dry-run —
+// should use PlanServiceTag and WriteBump instead.
+func SetServiceTag(root, appName, svcName, tag string) (Bump, error) {
+	b, err := PlanServiceTag(root, appName, svcName, tag)
+	if err != nil {
+		return b, err
+	}
+	return WriteBump(root, b)
 }
 
 func withHeader(comment string, body []byte) []byte {

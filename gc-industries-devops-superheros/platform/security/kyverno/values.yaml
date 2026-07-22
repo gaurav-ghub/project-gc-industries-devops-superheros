@@ -1,0 +1,84 @@
+# Helm values for Kyverno on the GC Industries Cloud Native Platform (kind).
+#
+# Kyverno is the *admission-time* half of the platform's policy story. The
+# `launchpad` CLI evaluates the same ClusterPolicies in infra/kyverno_policy/
+# before a commit is ever made; Kyverno is the backstop that catches anything
+# which reaches the cluster by another route.
+
+# ---------------------------------------------------------------------------
+# Single replica per controller.
+#
+# The chart's HA defaults schedule multiple admission controller pods with hard
+# pod anti-affinity. A kind cluster has two workers, so the extra replicas stay
+# Pending forever and the bootstrap never converges. One replica is the correct
+# shape for a local platform.
+# ---------------------------------------------------------------------------
+admissionController:
+  replicas: 1
+  container:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
+backgroundController:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+cleanupController:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+reportsController:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+config:
+  # -------------------------------------------------------------------------
+  # Do NOT rewrite unqualified images to docker.io.
+  #
+  # This is on by default, and it quietly changes what the policies mean:
+  # with it enabled, `dockergc00/superheros-catalog:v3` is mutated to
+  # `docker.io/dockergc00/superheros-catalog:v3` before validation runs, so
+  # restrict-image-registries accepts an image reference that never actually
+  # named a registry.
+  #
+  # Turning it off makes admission agree exactly with the `launchpad` policy
+  # gate, which judges the literal string in the manifest. The platform would
+  # rather a developer write the registry down than have two systems disagree
+  # about whether their image is compliant.
+  # -------------------------------------------------------------------------
+  enableDefaultRegistryMutation: false
+
+  # -------------------------------------------------------------------------
+  # Keep Kyverno's webhooks away from the namespaces that keep the cluster
+  # alive. An admission webhook that can block kube-system can make a cluster
+  # unrecoverable if Kyverno itself is unhealthy.
+  # -------------------------------------------------------------------------
+  webhooks:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kyverno
+            - istio-system
+            - local-path-storage

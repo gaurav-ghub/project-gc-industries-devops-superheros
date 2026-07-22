@@ -1,4 +1,6 @@
 {{- range $svc := .Values.services }}
+{{- $res := $svc.resources | default $.Values.defaults.resources }}
+{{- $sec := $svc.security | default $.Values.defaults.security }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,6 +17,13 @@ spec:
       labels:
         {{- include "app.labels" (dict "svc" $svc "root" $) | nindent 8 }}
     spec:
+      # Pod-level half of the service's security block. Kyverno's
+      # enforce-security-context policy reads runAsNonRoot from here.
+      securityContext:
+        runAsNonRoot: {{ $sec.runAsNonRoot }}
+        runAsUser: {{ $sec.runAsUser }}
+        runAsGroup: {{ $sec.runAsGroup }}
+        fsGroup: {{ $sec.fsGroup }}
       containers:
         - name: {{ $svc.name }}
           image: "{{ $svc.image }}:{{ $svc.tag | default "latest" }}"
@@ -22,5 +31,20 @@ spec:
           ports:
             - name: http
               containerPort: {{ $svc.port }}
+          resources:
+            requests:
+              cpu: {{ $res.requests.cpu | quote }}
+              memory: {{ $res.requests.memory | quote }}
+            limits:
+              cpu: {{ $res.limits.cpu | quote }}
+              memory: {{ $res.limits.memory | quote }}
+          # Container-level half of the same block.
+          securityContext:
+            allowPrivilegeEscalation: {{ $sec.allowPrivilegeEscalation }}
+            capabilities:
+              drop:
+                {{- range $cap := $sec.dropCapabilities }}
+                - {{ $cap }}
+                {{- end }}
 ---
 {{- end }}

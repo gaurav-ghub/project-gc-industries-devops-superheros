@@ -1,0 +1,48 @@
+# LaunchPad application spec — the INPUT to `launchpad onboard --from`.
+#
+# apps/superheros/ is generated from this file and is overwritten on every
+# onboard run, so a fix applied by hand there does not survive. Fix it here.
+# (Phase 1 lost the namespace fix exactly that way: an onboard re-run against a
+# stale ad-hoc spec silently reverted `superheros` to `superheros-lp`.)
+#
+#   launchpad onboard --root . --from specs/superheros.yaml
+#
+# Images carry their registry host explicitly. Kubernetes would resolve a bare
+# "dockergc00/..." against Docker Hub just fine, but the restrict-image-registries
+# ClusterPolicy matches the literal string against "docker.io/*" — so an
+# unqualified reference runs and is rejected at the same time.
+#
+# resources and security are omitted deliberately: LaunchPad materializes its
+# platform defaults into apps/superheros/values.yaml, which is what the policy
+# gate then validates. Set them here only to override a default.
+
+name: superheros
+namespace: superheros
+repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+owner: gc-industries
+services:
+  - name: frontend
+    image: docker.io/dockergc00/superheros-frontend
+    tag: v1-9c6f729
+    port: 80
+    replicas: 1
+  - name: catalog
+    image: docker.io/dockergc00/superheros-catalog
+    tag: v3-6f11a5d
+    port: 8081
+    replicas: 1
+  - name: inventory
+    image: docker.io/dockergc00/superheros-inventory
+    tag: v1-b9b34bb
+    port: 8083
+    replicas: 1
+  - name: orders
+    image: docker.io/dockergc00/superheros-orders
+    tag: v1-df408cf
+    port: 8082
+    replicas: 1
+  - name: payment
+    image: docker.io/dockergc00/superheros-payment
+    tag: v1-6f11a5d
+    port: 8084
+    replicas: 1
