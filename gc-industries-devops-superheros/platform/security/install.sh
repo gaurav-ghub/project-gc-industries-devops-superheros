@@ -25,6 +25,9 @@
 
 set -euo pipefail
 
+# Own directory variable, resolved BEFORE sourcing any child. These files are
+# sourced into one shell, so a name shared with a child would be overwritten and
+# the second `source` below would look in the wrong directory.
 SECURITY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SECURITY_DIR}/../scripts/utils.sh"
 

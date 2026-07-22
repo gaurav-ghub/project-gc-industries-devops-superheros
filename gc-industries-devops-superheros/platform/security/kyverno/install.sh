@@ -25,13 +25,22 @@
 
 set -euo pipefail
 
-SECURITY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Each file in this module uses its OWN directory variable. These scripts are
+# `source`d, not executed as subprocesses, so a shared name like SECURITY_DIR
+# would be silently overwritten by whichever file was sourced last — and the
+# parent's next `source "${SECURITY_DIR}/..."` would resolve against the child's
+# directory instead of its own.
+KYVERNO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "${SECURITY_DIR}/../../scripts/utils.sh"
+source "${KYVERNO_DIR}/../../scripts/utils.sh"
 
-readonly KYVERNO_CHART_VERSION="3.8.2"
-readonly KYVERNO_NAMESPACE="kyverno"
-readonly KYVERNO_POLICIES_APP="${PROJECT_ROOT}/infra/argocd/kyverno-argocd-app.yaml"
+# Plain assignments, not `readonly`. This file is sourced, and a second source
+# in the same shell — re-running the module by hand after a bootstrap, say —
+# would abort on "readonly variable" under `set -e`. utils.sh guards against
+# that with a load flag; the simpler fix here is not to make them readonly.
+KYVERNO_CHART_VERSION="3.8.2"
+KYVERNO_NAMESPACE="kyverno"
+KYVERNO_POLICIES_APP="${PROJECT_ROOT}/infra/argocd/kyverno-argocd-app.yaml"
 
 
 install_kyverno() {
@@ -107,7 +116,7 @@ install_kyverno_chart() {
         --namespace "${KYVERNO_NAMESPACE}" \
         --create-namespace \
         --version "${KYVERNO_CHART_VERSION}" \
-        --values "${SECURITY_DIR}/values.yaml"
+        --values "${KYVERNO_DIR}/values.yaml"
     then
 
         echo

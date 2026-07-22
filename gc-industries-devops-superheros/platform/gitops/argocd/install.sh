@@ -2,9 +2,12 @@
 
 set -euo pipefail
 
-GITOPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# This file is sourced by ../install.sh, not run as a subprocess, so it must not
+# reuse the parent's GITOPS_DIR — assigning it here would overwrite the parent's
+# value and send its next `source "${GITOPS_DIR}/verify.sh"` into this directory.
+ARGOCD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "${GITOPS_DIR}/../../scripts/utils.sh"
+source "${ARGOCD_DIR}/../../scripts/utils.sh"
 
 
 install_argocd() {
@@ -107,7 +110,7 @@ install_argocd_chart() {
         --install argocd \
         argo/argo-cd \
         --namespace argocd \
-        --values "${GITOPS_DIR}/values.yaml"
+        --values "${ARGOCD_DIR}/values.yaml"
     then
 
         echo

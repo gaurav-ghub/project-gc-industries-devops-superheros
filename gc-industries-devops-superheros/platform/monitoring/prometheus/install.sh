@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 
-MONITORING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# This file is sourced by ../install.sh, not run as a subprocess, so it must not
+# reuse the parent's MONITORING_DIR — assigning it here would overwrite the
+# parent's value and send its next `source "${MONITORING_DIR}/verify.sh"` into
+# this directory.
+PROMETHEUS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "${MONITORING_DIR}/../../scripts/utils.sh"
+source "${PROMETHEUS_DIR}/../../scripts/utils.sh"
 
 install_prometheus() {
 
@@ -141,7 +145,7 @@ install_prometheus_chart() {
         prometheus-community/kube-prometheus-stack \
         --namespace monitoring \
         --create-namespace \
-        --values "${MONITORING_DIR}/../values/${PLATFORM_ENVIRONMENT}/prometheus-values.yaml"
+        --values "${PROMETHEUS_DIR}/../values/${PLATFORM_ENVIRONMENT}/prometheus-values.yaml"
     then
 
         echo

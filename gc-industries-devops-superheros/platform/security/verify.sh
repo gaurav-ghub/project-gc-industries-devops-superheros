@@ -12,9 +12,10 @@
 
 set -euo pipefail
 
-SECURITY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Own directory variable — see the note in kyverno/install.sh.
+SECURITY_VERIFY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source "${SECURITY_DIR}/../scripts/utils.sh"
+source "${SECURITY_VERIFY_DIR}/../scripts/utils.sh"
 
 
 display_security_summary() {

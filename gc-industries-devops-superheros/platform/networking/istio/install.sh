@@ -25,7 +25,8 @@
 
 
 
-readonly ISTIO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Not `readonly` — see the note in ../install.sh.
+ISTIO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${ISTIO_DIR}/../../scripts/utils.sh"
 source "${ISTIO_DIR}/verify.sh"

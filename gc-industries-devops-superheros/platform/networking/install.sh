@@ -24,7 +24,10 @@
 ###############################################################################
 
 
-readonly NETWORKING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Not `readonly`: this file is sourced, and a second source in the same shell
+# fails with "readonly variable" — silently noisy on its own, and fatal once
+# another module has turned on `set -e` in the shared shell.
+NETWORKING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "${NETWORKING_DIR}/istio/install.sh"
 source "${NETWORKING_DIR}/istio/verify.sh"
