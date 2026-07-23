@@ -229,13 +229,26 @@ verify_argocd_pods() {
 
     echo
 
-    if kubectl get pods \
+    # A one-shot init Job (argocd-redis-secret-init, shipped by the chart to
+    # create the redis auth secret) legitimately ends as Completed/Succeeded —
+    # that is the Job doing its job, not a failure. The old check was
+    # `grep -vq Running`, which flagged that Completed pod and failed the
+    # bootstrap even though every long-running component was healthy. Only pods
+    # that are neither Running nor Completed are actually wrong.
+    local unhealthy
+
+    unhealthy="$(kubectl get pods \
         --namespace argocd \
         --no-headers \
-        | grep -vq "Running"
-    then
+        | awk '$3 != "Running" && $3 != "Completed" { print }')"
 
-        log_error "Some ArgoCD pods are not running."
+    if [[ -n "${unhealthy}" ]]; then
+
+        echo "${unhealthy}"
+
+        echo
+
+        log_error "Some ArgoCD pods are not healthy."
 
         exit 1
 
@@ -249,19 +262,47 @@ verify_argocd_pods() {
 
 wait_for_argocd_components() {
 
-    log_info "Waiting for ArgoCD components to become Ready..."
+    log_info "Waiting for ArgoCD workloads to roll out..."
 
     echo
 
-    if ! kubectl wait \
-        --namespace argocd \
-        --for=condition=Ready \
-        pod \
-        -l app.kubernetes.io/instance=argocd \
-        --timeout=300s
-    then
+    # Wait on the actual workloads (Deployments + the application-controller
+    # StatefulSet), NOT on a pod label.
+    #
+    # The label app.kubernetes.io/instance=argocd also matches the one-shot
+    # `argocd-redis-secret-init` Job pod, which runs to Completed and can never
+    # satisfy --for=condition=Ready. The old `kubectl wait` therefore timed out
+    # on it for the full 300s even when every long-running pod was 1/1 Running —
+    # and "worked on the second run" only because the Job pod had been garbage
+    # collected by then. `kubectl rollout status` tracks controllers and ignores
+    # Jobs by construction, so it is the correct primitive here and the result no
+    # longer depends on GC timing.
+    local rc=0
+    local kind name
 
-        log_warn "Some ArgoCD pods did not reach Ready state within the timeout."
+    while read -r kind name; do
+
+        [[ -z "${name}" ]] && continue
+
+        log_info "  waiting for ${kind}/${name}..."
+
+        if ! kubectl rollout status \
+            --namespace argocd \
+            "${kind}/${name}" \
+            --timeout=300s
+        then
+
+            rc=1
+
+        fi
+
+    done < <(kubectl get deploy,statefulset \
+                --namespace argocd \
+                -o jsonpath='{range .items[*]}{.kind}{" "}{.metadata.name}{"\n"}{end}')
+
+    echo
+
+    if [[ "${rc}" -ne 0 ]]; then
 
         kubectl get pods -n argocd
 
@@ -272,8 +313,6 @@ wait_for_argocd_components() {
         exit 1
 
     fi
-
-    echo
 
     log_success "All ArgoCD components are Ready."
 

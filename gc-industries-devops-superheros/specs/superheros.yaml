@@ -73,7 +73,7 @@ services:
     versions:
       - name: v1
         tag: v1-6f11a5d
-        weight: 40
+        weight: 30
         replicas: 1
         env:
           - name: CATALOG_VERSION
@@ -87,7 +87,7 @@ services:
             value: v2
       - name: v3
         tag: v3-6f11a5d
-        weight: 30
+        weight: 40
         replicas: 1
         env:
           - name: CATALOG_VERSION
