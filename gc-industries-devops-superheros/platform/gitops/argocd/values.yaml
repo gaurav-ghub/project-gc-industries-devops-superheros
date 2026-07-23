@@ -57,7 +57,7 @@ notifications:
   templates:
     template.launchpad-deploying: |
       message: |
-        LaunchPad · {{.app.metadata.name}} is deploying — ArgoCD is syncing revision {{.app.status.sync.revision}}.
+        LaunchPad · {{.app.metadata.name}} is deploying — ArgoCD is syncing revision {{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}.
       webhook:
         launchpad-sink:
           method: POST
@@ -69,13 +69,13 @@ notifications:
               "namespace": "{{.app.spec.destination.namespace}}",
               "sync": "{{.app.status.sync.status}}",
               "health": "{{.app.status.health.status}}",
-              "revision": "{{.app.status.sync.revision}}",
+              "revision": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}",
               "text": "LaunchPad - {{.app.metadata.name}} is deploying (ArgoCD is syncing)."
             }
         slack-incoming:
           method: POST
           body: |
-            {"text": ":hourglass_flowing_sand: LaunchPad · *{{.app.metadata.name}}* is deploying — ArgoCD is syncing `{{.app.status.sync.revision}}`."}
+            {"text": ":hourglass_flowing_sand: LaunchPad · *{{.app.metadata.name}}* is deploying — ArgoCD is syncing `{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}`."}
       slack:
         attachments: |
           [{
@@ -85,13 +85,13 @@ notifications:
             "fields": [
               {"title": "Sync",     "value": "{{.app.status.sync.status}}",   "short": true},
               {"title": "Health",   "value": "{{.app.status.health.status}}", "short": true},
-              {"title": "Revision", "value": "{{.app.status.sync.revision}}", "short": false}
+              {"title": "Revision", "value": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}", "short": false}
             ]
           }]
 
     template.launchpad-healthy: |
       message: |
-        LaunchPad · {{.app.metadata.name}} is deployed and healthy at revision {{.app.status.sync.revision}}.
+        LaunchPad · {{.app.metadata.name}} is deployed and healthy at revision {{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}.
       webhook:
         launchpad-sink:
           method: POST
@@ -103,13 +103,13 @@ notifications:
               "namespace": "{{.app.spec.destination.namespace}}",
               "sync": "{{.app.status.sync.status}}",
               "health": "{{.app.status.health.status}}",
-              "revision": "{{.app.status.sync.revision}}",
+              "revision": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}",
               "text": "LaunchPad - {{.app.metadata.name}} is deployed and healthy."
             }
         slack-incoming:
           method: POST
           body: |
-            {"text": ":white_check_mark: LaunchPad · *{{.app.metadata.name}}* is deployed and healthy at `{{.app.status.sync.revision}}`."}
+            {"text": ":white_check_mark: LaunchPad · *{{.app.metadata.name}}* is deployed and healthy at `{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}`."}
       slack:
         attachments: |
           [{
@@ -119,7 +119,7 @@ notifications:
             "fields": [
               {"title": "Sync",     "value": "{{.app.status.sync.status}}",   "short": true},
               {"title": "Health",   "value": "{{.app.status.health.status}}", "short": true},
-              {"title": "Revision", "value": "{{.app.status.sync.revision}}", "short": false}
+              {"title": "Revision", "value": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}", "short": false}
             ]
           }]
 
@@ -137,7 +137,7 @@ notifications:
               "namespace": "{{.app.spec.destination.namespace}}",
               "sync": "{{.app.status.sync.status}}",
               "health": "{{.app.status.health.status}}",
-              "revision": "{{.app.status.sync.revision}}",
+              "revision": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}",
               "text": "LaunchPad - {{.app.metadata.name}} FAILED (sync {{.app.status.sync.status}}, health {{.app.status.health.status}})."
             }
         slack-incoming:
@@ -153,7 +153,7 @@ notifications:
             "fields": [
               {"title": "Sync",     "value": "{{.app.status.sync.status}}",   "short": true},
               {"title": "Health",   "value": "{{.app.status.health.status}}", "short": true},
-              {"title": "Revision", "value": "{{.app.status.sync.revision}}", "short": false}
+              {"title": "Revision", "value": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}", "short": false}
             ]
           }]
 
@@ -174,6 +174,14 @@ notifications:
   # re-reconciles every three minutes does not notify anyone every three
   # minutes. Without it the first useful message would train everyone to ignore
   # the channel by the end of the afternoon.
+  #
+  # It keys on `revisions[0]`, not `revision`. LaunchPad's Applications are
+  # multi-source (the chart + a `$values` source), and for a multi-source app
+  # ArgoCD populates `status.sync.revisions` (plural) and leaves
+  # `status.sync.revision` (singular) empty. Keying oncePer on the empty
+  # singular field made it dedupe on `<nil>` — so `on-deployed` fired exactly
+  # once, ever, and every later deploy was silently suppressed. Same reason the
+  # templates read `revisions[0]`.
   #--------------------------------------------------------------------------
   triggers:
     trigger.on-sync-running: |
@@ -184,7 +192,7 @@ notifications:
     trigger.on-deployed: |
       - description: The application is synced and healthy
         when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
-        oncePer: app.status.sync.revision
+        oncePer: app.status.sync.revisions[0]
         send: [launchpad-healthy]
 
     trigger.on-health-degraded: |
