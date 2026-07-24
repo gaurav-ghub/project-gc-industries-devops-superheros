@@ -101,6 +101,21 @@ func (s *LiveStep) Detail(msg string) { s.r.Detail(msg) }
 // Endurance's voice instead of its own.
 func (s *LiveStep) Stream() *Stream { return s.r.Stream() }
 
+// StreamWith is Stream with a line filter: the same detail channel, at the same
+// indent, but the caller gets a look at every line first.
+//
+// It is the hook Phase 8 left for promoting a subprocess's own severities into
+// Endurance's — the bash modules prefix the lines that matter with `warning:`
+// or `error:`, and `endurance bootstrap` uses this to finish a module that
+// warned as ⚠ rather than ✓. The filter reports whether the line should be
+// shown, so it can also drop the noise a tool insists on repeating.
+//
+// The indent is not a parameter on purpose: there is one detail channel and it
+// has one indent.
+func (s *LiveStep) StreamWith(filter func(line string) bool) *Stream {
+	return s.r.StreamWith(detailIndent, filter)
+}
+
 // Done finishes the step successfully.
 func (s *LiveStep) Done() { s.finish(StateReady, "") }
 

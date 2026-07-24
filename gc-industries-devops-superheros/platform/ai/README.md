@@ -38,7 +38,7 @@ by a `PrometheusRule` (`infra/monitoring/pod-restart-alert.yaml`).
 
 | File | Purpose |
 |---|---|
-| `install.sh` / `verify.sh` | module entry + verification, sourced by `bootstrap-kind.sh` |
+| `install.sh` / `verify.sh` | module entry + verification — sourced by `bootstrap-kind.sh`, and run as a subprocess by `endurance bootstrap` |
 | `manifests/deployment.yaml` | the enricher Deployment (monitoring ns, platform security posture) |
 | `manifests/service.yaml` | the in-cluster address Alertmanager posts to |
 | `secret.example.yaml` | credential template; copy to git-ignored `secret.yaml` |

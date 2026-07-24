@@ -1,9 +1,13 @@
-// Command endurance is the developer-facing CLI of the Endurance IDP.
+// Command endurance is the CLI of the Endurance IDP — and, from Phase 9, its
+// single front door.
 //
-// A developer runs `endurance onboard` to register and deploy an application,
-// `endurance release` (later) to promote a new image, and `endurance list` /
-// `status` to see what's running. The CLI only ever writes GitOps files and
-// commits — ArgoCD is the only thing that deploys.
+// An operator runs `endurance doctor` / `bootstrap` / `status` / `destroy` to
+// stand the platform up and take it down; a developer runs `endurance onboard`
+// to register an application, `release` to promote an image, and `list` /
+// `status <app>` to see what is running. The two halves are different jobs and
+// one binary: the operator verbs drive the bash modules under platform/ as
+// subprocesses, and the developer verbs only ever write GitOps files and
+// commit — ArgoCD is still the only thing that deploys.
 package main
 
 import (
@@ -18,6 +22,7 @@ import (
 	"github.com/gc-ghub/endurance/internal/gitops"
 	"github.com/gc-ghub/endurance/internal/notify"
 	"github.com/gc-ghub/endurance/internal/onboard"
+	"github.com/gc-ghub/endurance/internal/platform"
 	"github.com/gc-ghub/endurance/internal/policy"
 	"github.com/gc-ghub/endurance/internal/release"
 	"github.com/gc-ghub/endurance/internal/render"
@@ -37,6 +42,15 @@ func main() {
 
 	var err error
 	switch cmd {
+	// The platform half: these drive the bash modules under platform/.
+	case "bootstrap":
+		err = cmdBootstrap(args)
+	case "doctor":
+		err = cmdDoctor(args)
+	case "destroy":
+		err = cmdDestroy(args)
+
+	// The application half: these only write git.
 	case "onboard":
 		err = cmdOnboard(args)
 	case "release":
@@ -52,7 +66,7 @@ func main() {
 	case "status":
 		err = cmdStatus(args)
 	case "version", "--version", "-v":
-		render.Print("endurance " + version.Current)
+		err = cmdVersion(args)
 	case "help", "--help", "-h":
 		usage()
 	default:
@@ -64,6 +78,58 @@ func main() {
 		render.Error(err.Error())
 		os.Exit(1)
 	}
+}
+
+// The platform commands. --root is optional everywhere: they find the platform
+// repo by walking up from the working directory, so they behave the same run
+// from the repo root, from cli/, or from wherever the binary was copied to.
+
+// cmdBootstrap stands the whole platform up: six bash modules run as
+// subprocesses, framed as one progress chain by the renderer.
+func cmdBootstrap(args []string) error {
+	fs := flag.NewFlagSet("bootstrap", flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	skipPreflight := fs.Bool("skip-preflight", false, "break glass: run the modules without checking the tools first")
+	dryRun := fs.Bool("dry-run", false, "print the chain and the commands, run nothing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return platform.Bootstrap(platform.BootstrapOptions{
+		Root: *root, SkipPreflight: *skipPreflight, DryRun: *dryRun,
+	})
+}
+
+// cmdDoctor is the preflight: can a bootstrap succeed on this machine?
+func cmdDoctor(args []string) error {
+	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return platform.Doctor(platform.DoctorOptions{Root: *root})
+}
+
+// cmdDestroy deletes the kind cluster the platform runs on.
+func cmdDestroy(args []string) error {
+	fs := flag.NewFlagSet("destroy", flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	yes := fs.Bool("yes", false, "do not ask for confirmation")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return platform.Destroy(platform.DestroyOptions{Root: *root, Yes: *yes})
+}
+
+// cmdVersion prints the CLI version and, unless --short, the version of every
+// component the platform installs.
+func cmdVersion(args []string) error {
+	fs := flag.NewFlagSet("version", flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	short := fs.Bool("short", false, "print only `endurance <version>`")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return platform.Version(*root, *short)
 }
 
 func cmdOnboard(args []string) error {
@@ -358,10 +424,25 @@ func cmdList(args []string) error {
 	return nil
 }
 
+// cmdStatus answers "is it up?" about whichever thing was named.
+//
+// With an application, that is the application's services and pods — the Phase
+// 1 command, unchanged. With nothing, it is the platform itself: the cluster
+// and every component the bootstrap installed. One verb, because a developer
+// asking whether things are working should not have to know which half of the
+// system they are asking about.
 func cmdStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	root := fs.String("root", ".", "platform repo root")
-	name, err := parsePositional(fs, args, "endurance status <app>")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		// Platform status searches upward from --root, so the same default
+		// serves both: run from anywhere in the tree and it finds the repo.
+		return platform.Status(platform.StatusOptions{Root: *root})
+	}
+	name, err := parsePositional(fs, args, "endurance status [<app>]")
 	if err != nil {
 		return err
 	}
@@ -384,7 +465,11 @@ func cmdStatus(args []string) error {
 	out, kerr := exec.Command("kubectl", "get", "pods", "-n", app.Namespace,
 		"-l", "app.kubernetes.io/part-of="+app.Name, "--no-headers").CombinedOutput()
 	if kerr != nil {
-		render.Warn("could not query cluster: " + string(out))
+		// One line, not kubectl's whole stack of "Unhandled Error" noise: the
+		// platform half of this command learned to say "not reachable — run
+		// `endurance bootstrap`", and one command must not have two voices.
+		render.Warn("could not query the cluster — `endurance status` reports whether the platform is up")
+		render.Detail(strings.TrimSpace(lastLine(string(out))))
 		return nil
 	}
 	if len(out) == 0 {
@@ -397,11 +482,25 @@ func cmdStatus(args []string) error {
 	return nil
 }
 
+// lastLine is kubectl's actual complaint: the useful sentence is at the bottom,
+// under however many "Unhandled Error" lines the client logged on the way.
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return lines[len(lines)-1]
+}
+
 func usage() {
 	render.Banner(version.Current)
 	render.Print(`Usage: endurance <command> [flags]
 
-Commands:
+Platform commands (operator):
+  doctor              Check this machine can stand the platform up
+  bootstrap           Install the platform: cluster, Istio, monitoring, AI,
+                      ArgoCD, Kyverno — one framed run
+  status              Show whether the cluster and every component is healthy
+  destroy             Delete the kind cluster and everything installed in it
+
+Application commands (developer):
   onboard             Register and generate GitOps files for an application
   release <app>       Promote one service (or one canary version) to a new tag
   canary status <app> Show how each service's traffic is split
@@ -413,8 +512,20 @@ Commands:
   policy check <app>  Evaluate a registered application against them
   list                List registered applications
   status <app>        Show an application's services and pods
-  version             Print version
+  version             Print the CLI version and every component's version
   help                Show this help
+
+Platform flags (doctor, bootstrap, status, destroy, version):
+  --root <dir>          platform repo root (default: found by walking up)
+  --dry-run             bootstrap: print the chain and the commands, run nothing
+  --skip-preflight      bootstrap: run the modules without checking the tools
+  --yes                 destroy: do not ask for confirmation
+  --short               version: print only ` + "`endurance <version>`" + `
+
+The platform commands run the bash modules under platform/ as subprocesses,
+with ` + platform.EnvFramed + `=1 in their environment, and stream their output
+through this CLI's renderer. The modules still work on their own — bootstrap
+is a front door, not a rewrite.
 
 Onboard flags:
   --root <dir>          platform repo root (default ".")
@@ -462,6 +573,8 @@ deploying, healthy, failed — because it is the only thing that deploys. Set
 ` + notify.EnvWebhook + ` (any JSON receiver) to enable the CLI half.
 
 Examples:
+  endurance doctor
+  endurance bootstrap
   endurance release superheros --service catalog --version v2 --tag v2-abc1234
   endurance canary set superheros --service catalog --weights v1=80,v2=10,v3=10
   endurance canary promote superheros --service catalog --version v3`)

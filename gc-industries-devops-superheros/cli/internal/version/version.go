@@ -12,4 +12,7 @@ package version
 //	v0.6.0  Endurance rebrand (LaunchPad → Endurance) + ring-ship banner
 //	v0.7.0  one output library — Go owns all rendering (live steps, progress,
 //	        subprocess detail stream, success screen, URL block; golden-tested)
-const Current = "v0.7.0"
+//	v0.8.0  the single front door — bootstrap / doctor / destroy / platform
+//	        status, wrapping the bash modules as framed subprocesses; version
+//	        reports every component the platform installs
+const Current = "v0.8.0"
