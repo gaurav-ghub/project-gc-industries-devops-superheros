@@ -1,0 +1,6 @@
+▸ Installing Istio
+  Installing Istio 1.23.0...
+  Istio control plane installed.
+  warning: Kiali is not installed on this cluster
+  Ingress gateway ready.
+✓ Installing Istio  4 lines from the module  41.0s

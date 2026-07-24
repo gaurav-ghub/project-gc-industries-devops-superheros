@@ -1,0 +1,8 @@
+
+── Preflight ─────────────────────────────────────────────
+✓ docker   27.1.1 · daemon running
+✓ kind     v0.23.0
+✓ kubectl  v1.31.0
+⚠ helm     v3.12.0 — 3.14+ recommended
+✗ git      not found — https://git-scm.com/downloads
+· cluster  no kind cluster yet

@@ -36,40 +36,15 @@
 
 
 ###############################################################################
-# Visual separation for readability
-###########################################################################
-
-print_separator() {
-
-    echo
-    printf '%*s\n' 57 '' | tr ' ' '='
-    echo
-
-}
-
-print_section() {
-
-    print_separator
-
-    echo "$1"
-
-    print_separator
-
-}
-
-print_subsection() {
-
-    echo
-    echo "---------------------------------------------------------"
-    echo "$1"
-    echo "---------------------------------------------------------"
-
-}
-
-###########################################################################
-
-
-
+# Output
+#
+# This file used to carry its own copies of print_separator / print_section /
+# print_subsection / print_banner, defined either side of the sourcing guard
+# below, which meant utils.sh silently overrode platform/lib/. Two definitions
+# of one look is the same bug as two looks. Phase 8 deleted the copies: the
+# definitions live in platform/lib/{logger,banner}.sh, sourced below, and the
+# look itself lives in the Go renderer (cli/internal/render).
+###############################################################################
 
 # Prevent multiple sourcing
 if [[ -n "${UTILS_SH_LOADED:-}" ]]; then
@@ -103,33 +78,8 @@ readonly KIND_CONFIG="${PROJECT_ROOT}/kind-config.yaml"
 
 
 ###############################################################################
-# Banner
-###############################################################################
-
-print_banner() {
-
-    echo "=============================================================="
-    echo "🚀 ${PLATFORM_NAME} — ${PLATFORM_TAGLINE}"
-    echo "=============================================================="
-    echo
-    echo "Platform Version : ${PLATFORM_VERSION}"
-    echo "Environment      : ${PLATFORM_ENVIRONMENT}"
-    echo "Customer         : ${PLATFORM_CUSTOMER}"
-    echo
-    echo "=============================================================="
-    echo
-}
-
-
-###############################################################################
-
-
-
-###############################################################################
-# Logging Functions
-###############################################################################
-
-
+# Banner and logging come from platform/lib/, sourced above. Nothing here may
+# redefine them — see the note at the top of this file.
 ###############################################################################
 
 ###############################################################################

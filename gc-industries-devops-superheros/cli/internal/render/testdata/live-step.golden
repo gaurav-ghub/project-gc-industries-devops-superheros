@@ -1,0 +1,11 @@
+▸ Creating the kind cluster
+✓ Creating the kind cluster  kind-superheros · 1 node  12.3s
+▸ Installing Istio
+  istioctl 1.23.0
+✓ Installing Istio  900ms
+▸ Installing Kiali
+· Installing Kiali  skipped · already installed
+▸ Installing monitoring
+⚠ Installing monitoring  Grafana has no persistent volume  2.0s
+▸ Installing ArgoCD
+✗ Installing ArgoCD  failed after 4.5s: exit status 1

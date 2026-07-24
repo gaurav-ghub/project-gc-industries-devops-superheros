@@ -1,0 +1,13 @@
+
+── Bootstrapping the platform ────────────────────────────
+[1/6] ▸ Creating the kind cluster
+[1/6] ✓ Creating the kind cluster  kind-superheros  12.0s
+[2/6] · Installing Istio  skipped
+[3/6] ▸ Installing monitoring
+[3/6] ✓ Installing monitoring  30.0s
+[4/6] · Installing AI alert enrichment  skipped
+[5/6] ▸ Installing ArgoCD
+[5/6] ✗ Installing ArgoCD  failed after 3.0s: exit status 1
+
+  ████████░░░░░░░░░░░░░░░░  2/6 · 45.0s
+✗ Bootstrapping the platform — 2 of 6 steps done, 1 failed

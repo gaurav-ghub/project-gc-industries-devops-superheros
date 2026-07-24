@@ -52,7 +52,7 @@ func main() {
 	case "status":
 		err = cmdStatus(args)
 	case "version", "--version", "-v":
-		fmt.Println("endurance " + version.Current)
+		render.Print("endurance " + version.Current)
 	case "help", "--help", "-h":
 		usage()
 	default:
@@ -391,13 +391,15 @@ func cmdStatus(args []string) error {
 		render.Warn("no pods yet — ArgoCD may still be syncing")
 		return nil
 	}
-	fmt.Print(string(out))
+	// kubectl's table is not ours to restyle, but it still goes through the
+	// renderer so it cannot land in the middle of a live step's line.
+	render.Print(string(out))
 	return nil
 }
 
 func usage() {
 	render.Banner(version.Current)
-	fmt.Println(`Usage: endurance <command> [flags]
+	render.Print(`Usage: endurance <command> [flags]
 
 Commands:
   onboard             Register and generate GitOps files for an application

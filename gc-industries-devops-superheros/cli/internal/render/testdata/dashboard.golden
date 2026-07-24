@@ -1,0 +1,13 @@
+
+╭─────────────────────────────────────────────────────────────────╮
+│  Application onboarded                                          │
+│                                                                 │
+│  App        superheros                                          │
+│  Namespace  superheros                                          │
+│  Services   5  (frontend, catalog, orders, inventory, payment)  │
+│  Notify     webhook:endurance-sink                              │
+│                                                                 │
+│  Next                                                           │
+│  → git push — ArgoCD deploys from the repo                      │
+│  → endurance status superheros                                  │
+╰─────────────────────────────────────────────────────────────────╯

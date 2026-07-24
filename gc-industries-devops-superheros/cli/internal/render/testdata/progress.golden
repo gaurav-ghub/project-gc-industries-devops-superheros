@@ -1,0 +1,17 @@
+
+── Bootstrapping the platform ────────────────────────────
+[1/6] ▸ Creating the kind cluster
+[1/6] ✓ Creating the kind cluster  15.0s
+[2/6] ▸ Installing Istio
+[2/6] ✓ Installing Istio  15.0s
+[3/6] ▸ Installing monitoring
+[3/6] ✓ Installing monitoring  15.0s
+[4/6] ▸ Installing AI alert enrichment
+[4/6] ✓ Installing AI alert enrichment  15.0s
+[5/6] ▸ Installing ArgoCD
+[5/6] ✓ Installing ArgoCD  15.0s
+[6/6] ▸ Installing Kyverno policies
+[6/6] ✓ Installing Kyverno policies  15.0s
+
+  ████████████████████████  6/6 · 1m30s
+✓ Bootstrapping the platform — 6 steps in 1m30s

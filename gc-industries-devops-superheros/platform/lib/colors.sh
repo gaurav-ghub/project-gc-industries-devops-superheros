@@ -1,30 +1,36 @@
 #!/usr/bin/env bash
 
 #
-# Endurance DevX Platform
-# Color Definitions
+# Endurance — colour is Go's, not bash's
+#
+# Endurance has one palette and it is declared in cli/internal/render/render.go:
+# purple for the product, cyan for headings and values, green ok, yellow warn,
+# red error, grey for everything secondary — including every line these scripts
+# print, which the CLI renders muted inside its own frame (Phase 8 decision:
+# "Go owns all rendering").
+#
+# A second palette here could only ever disagree with that one. So these names
+# still exist — `set -u` would kill any script that still expands one — but they
+# expand to nothing. Removing them entirely is a Phase 13 tidy-up, once nothing
+# outside this repo sources the file.
 #
 
-# Reset
-RESET="\033[0m"
+RESET=""
 
+BLACK=""
+RED=""
+GREEN=""
+YELLOW=""
+BLUE=""
+PURPLE=""
+CYAN=""
+WHITE=""
 
-# Standard Colors
-BLACK="\033[0;30m"
-RED="\033[0;31m"
-GREEN="\033[0;32m"
-YELLOW="\033[0;33m"
-BLUE="\033[0;34m"
-PURPLE="\033[0;35m"
-CYAN="\033[0;36m"
-WHITE="\033[0;37m"
-
-# Bold Colors
-BOLD="\033[1m"
-BOLD_RED="\033[1;31m"
-BOLD_GREEN="\033[1;32m"
-BOLD_YELLOW="\033[1;33m"
-BOLD_BLUE="\033[1;34m"
-BOLD_PURPLE="\033[1;35m"
-BOLD_CYAN="\033[1;36m"
-BOLD_WHITE="\033[1;37m"
+BOLD=""
+BOLD_RED=""
+BOLD_GREEN=""
+BOLD_YELLOW=""
+BOLD_BLUE=""
+BOLD_PURPLE=""
+BOLD_CYAN=""
+BOLD_WHITE=""

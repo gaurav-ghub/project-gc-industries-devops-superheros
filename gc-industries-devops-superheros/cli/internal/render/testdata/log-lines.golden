@@ -1,0 +1,12 @@
+
+── Onboard an application ────────────────────────────────
+▸ Rendering manifests
+  charts/app · 5 services
+✓ wrote apps/superheros/app.yaml
+⚠ commit skipped: nothing staged
+✗ 2 enforced violation(s)
+· not committed — review the files, then commit when ready
+
+raw output that is not ours
+5 services, 4 ready
+──────────────────────────────────────────────────────────

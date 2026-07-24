@@ -10,4 +10,6 @@ package version
 //	v0.4.0  canary (per-service versions + Istio traffic weights)
 //	v0.5.0  developer notifications (CLI intent + ArgoCD outcome)
 //	v0.6.0  Endurance rebrand (LaunchPad → Endurance) + ring-ship banner
-const Current = "v0.6.0"
+//	v0.7.0  one output library — Go owns all rendering (live steps, progress,
+//	        subprocess detail stream, success screen, URL block; golden-tested)
+const Current = "v0.7.0"

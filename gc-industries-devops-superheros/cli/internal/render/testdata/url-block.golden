@@ -1,0 +1,7 @@
+
+── Platform URLs ─────────────────────────────────────────
+App         http://localhost:8080/
+ArgoCD      http://localhost:8080/argocd  admin
+Kiali       http://localhost:8080/kiali
+Grafana     http://localhost:8080/grafana
+Prometheus  http://localhost:8080/prometheus
