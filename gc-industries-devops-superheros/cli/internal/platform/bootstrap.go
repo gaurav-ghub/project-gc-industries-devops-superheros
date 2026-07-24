@@ -88,6 +88,8 @@ func Bootstrap(opts BootstrapOptions) error {
 		return fmt.Errorf("bootstrap did not complete")
 	}
 
+	accessBlock()
+
 	render.Dashboard("Platform ready", [][2]string{
 		{"Cluster", render.Value(ClusterName(root))},
 		{"Context", render.Value(ContextName(root))},
@@ -99,6 +101,43 @@ func Bootstrap(opts BootstrapOptions) error {
 		"endurance destroy — delete the cluster when you are done",
 	})
 	return nil
+}
+
+// accessBlock prints where the platform is, once, at the end.
+//
+// Each bash module used to print its own version of this the moment it
+// finished: Grafana's URL and password three minutes before ArgoCD existed,
+// ArgoCD's "🎉 Welcome Onboard! Your platform is now ready" while two modules
+// were still pending. Three problems in one. It was a third visual system after
+// the one Phase 8 removed; it announced a readiness no single module is in a
+// position to claim; and it printed live admin passwords into a scrollback that
+// gets screenshotted and pasted into chats.
+//
+// So the modules are quiet under ENDURANCE_FRAMED, and this runs when the whole
+// chain has actually finished. **No credential is printed** — the command that
+// fetches one is, which is the same information with a shelf life.
+//
+// The port-forwards are honest about being temporary: Phase 10 replaces them
+// with real addresses via kind extraPortMappings and the Istio gateway, and
+// this block is where those will land.
+func accessBlock() {
+	render.URLBlock("Access", []render.URL{
+		{Label: "ArgoCD", Addr: "https://localhost:8080",
+			Note: "kubectl port-forward svc/argocd-server -n argocd 8080:443"},
+		{Label: "Grafana", Addr: "http://localhost:3000",
+			Note: "kubectl port-forward svc/prometheus-grafana -n monitoring 3000:80"},
+		{Label: "Prometheus", Addr: "http://localhost:9090",
+			Note: "kubectl port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090:9090"},
+		{Label: "Alertmanager", Addr: "http://localhost:9093",
+			Note: "kubectl port-forward svc/prometheus-kube-prometheus-alertmanager -n monitoring 9093:9093"},
+	})
+	render.Blank()
+	render.Info("each address needs its port-forward running first — Phase 10 makes them permanent")
+	render.Info("credentials are not printed; ask the cluster for them when you need them:")
+	render.Detail("kubectl -n argocd get secret argocd-initial-admin-secret " +
+		`-o jsonpath="{.data.password}" | base64 -d    # ArgoCD, user admin`)
+	render.Detail("kubectl -n monitoring get secret prometheus-grafana " +
+		`-o jsonpath="{.data.admin-password}" | base64 -d    # Grafana, user admin`)
 }
 
 // steps is the plan the progress counter is drawn from.

@@ -19,6 +19,9 @@ source "${SECURITY_VERIFY_DIR}/../scripts/utils.sh"
 
 
 display_security_summary() {
+    # Endurance frames the run and shows the access details once, at the end.
+    if framed; then return 0; fi
+
 
     print_section "Security Summary"
 

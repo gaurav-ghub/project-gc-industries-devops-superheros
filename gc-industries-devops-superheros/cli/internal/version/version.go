@@ -15,4 +15,10 @@ package version
 //	v0.8.0  the single front door — bootstrap / doctor / destroy / platform
 //	        status, wrapping the bash modules as framed subprocesses; version
 //	        reports every component the platform installs
-const Current = "v0.8.0"
+//	v0.8.1  what the first live bootstrap showed: module end-of-run summaries
+//	        silenced under framing (they announced a ready platform three
+//	        modules early, and printed live admin passwords), access details
+//	        gathered into one block at the end, a thin progress bar in place of
+//	        the spinner, steps that resolve in the past tense, red bars for a
+//	        teardown
+const Current = "v0.8.1"

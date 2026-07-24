@@ -472,8 +472,11 @@ func cmdStatus(args []string) error {
 		render.Detail(strings.TrimSpace(lastLine(string(out))))
 		return nil
 	}
-	if len(out) == 0 {
-		render.Warn("no pods yet — ArgoCD may still be syncing")
+	// kubectl says "No resources found in <ns> namespace." on stderr and exits
+	// 0, so an empty namespace arrives here as output rather than as nothing.
+	if len(out) == 0 || strings.HasPrefix(strings.TrimSpace(string(out)), "No resources found") {
+		render.Warn("no pods yet — ArgoCD deploys from the pushed repo, so check the commit landed")
+		render.Detail("git push, then `endurance status " + app.Name + "` again")
 		return nil
 	}
 	// kubectl's table is not ours to restyle, but it still goes through the

@@ -56,6 +56,9 @@ verify_ai_installation() {
 
 
 display_ai_summary() {
+    # Endurance frames the run and shows the access details once, at the end.
+    if framed; then return 0; fi
+
 
     print_section "AI Alert Enrichment Summary"
 

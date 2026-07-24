@@ -321,6 +321,9 @@ wait_for_argocd_components() {
 }
 
 display_argocd_information() {
+    # Endurance frames the run and shows the access details once, at the end.
+    if framed; then return 0; fi
+
 
     print_section "ArgoCD Information"
 
@@ -334,7 +337,9 @@ display_argocd_information() {
 
     display_argocd_useful_commands
 
-    display_gitops_summary
+    # Not display_gitops_summary: the module's own install.sh calls it after
+    # this function returns, so calling it here printed the whole "Welcome
+    # Onboard / Happy GitOps" block twice in a row.
 
     log_success "ArgoCD information displayed."
 
@@ -450,6 +455,9 @@ display_argocd_useful_commands() {
 }
 
 display_gitops_summary() {
+    # Endurance frames the run and shows the access details once, at the end.
+    if framed; then return 0; fi
+
 
     print_section "GitOps Summary"
 

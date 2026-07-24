@@ -2,6 +2,7 @@ package platform
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,6 +142,49 @@ func TestEveryModuleStandsAlone(t *testing.T) {
 	}
 }
 
+// TestModuleSummariesAreSilentWhenFramed.
+//
+// Each module ends by displaying what it installed — URLs, admin passwords, pod
+// tables, "Status : READY ✅", "🎉 Welcome Onboard!". Fine when an operator runs
+// that module by hand. In a framed bootstrap it was three separate problems:
+// a third visual system after the one Phase 8 removed; a claim that the
+// platform was ready, printed by ArgoCD while two modules were still pending;
+// and live credentials in a scrollback that gets screenshotted.
+//
+// They are quiet under ENDURANCE_FRAMED now, and Endurance prints the access
+// details once, at the end. This test runs the real functions and fails if any
+// of that comes back.
+func TestModuleSummariesAreSilentWhenFramed(t *testing.T) {
+	bash := requireBash(t)
+	root := repoRoot(t)
+
+	summaries := []struct{ file, fn string }{
+		{"platform/security/verify.sh", "display_security_summary"},
+		{"platform/ai/verify.sh", "display_ai_summary"},
+		{"platform/gitops/argocd/install.sh", "display_gitops_summary"},
+		{"platform/gitops/argocd/install.sh", "display_argocd_information"},
+		{"platform/monitoring/prometheus/install.sh", "display_monitoring_information"},
+		{"platform/security/kyverno/install.sh", "display_kyverno_policies"},
+	}
+
+	for _, s := range summaries {
+		t.Run(s.fn, func(t *testing.T) {
+			cmd := exec.Command(bash, "-c",
+				`source platform/scripts/utils.sh; source "$1"; type -t "$2" >/dev/null || exit 3; "$2"`,
+				"bash", s.file, s.fn)
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(), EnvFramed+"=1")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", s.fn, err, out)
+			}
+			if len(bytes.TrimSpace(out)) != 0 {
+				t.Errorf("%s speaks in a framed run — Endurance is drawing here:\n%s", s.fn, out)
+			}
+		})
+	}
+}
+
 // TestRunScriptFramesASubprocess is this phase's exit criterion as a test, the
 // way the bash bridge was Phase 8's: run a real subprocess through the real
 // runner and prove the three things the framing depends on.
@@ -245,7 +289,7 @@ func TestRunModulePromotesAWarning(t *testing.T) {
 	p.Finish()
 
 	got := buf.String()
-	if !strings.Contains(got, "⚠ Installing AI alert enrichment") {
+	if !strings.Contains(got, "⚠ "+Chain[3].Done) {
 		t.Errorf("a module that warned did not finish with ⚠:\n%s", got)
 	}
 	if !strings.Contains(got, "2 warnings from the module") {
@@ -253,9 +297,54 @@ func TestRunModulePromotesAWarning(t *testing.T) {
 	}
 	// A warning is still a step that ran: the progress verdict must not call
 	// the run incomplete because of it.
-	if !strings.Contains(got, "1 steps in") {
+	if !strings.Contains(got, "1 step in") {
 		t.Errorf("a warned step was not counted as done:\n%s", got)
 	}
+}
+
+// TestStepsResolveInThePastTense — a step says what it is doing while it runs
+// and what it did once it has. A failure keeps the running label, because
+// "Istio installed — failed after 44s" is a sentence arguing with itself.
+func TestStepsResolveInThePastTense(t *testing.T) {
+	for _, m := range Chain {
+		if m.Done == "" {
+			t.Errorf("%s has no past-tense label", m.Step)
+		}
+		if m.Done == m.Step {
+			t.Errorf("%s resolves with the same words it started with", m.Step)
+		}
+	}
+
+	t.Run("success renames", func(t *testing.T) {
+		buf := capture(t)
+		p := render.NewProgress("Bootstrapping the platform", Chain[1].Step)
+		if err := runModule(func(*render.LiveStep, string, string) (moduleOutput, error) {
+			return moduleOutput{lines: 4}, nil
+		}, p, "/repo", Chain[1]); err != nil {
+			t.Fatal(err)
+		}
+		if got := buf.String(); !strings.Contains(got, "✓ Istio installed") {
+			t.Errorf("the step did not resolve in the past tense:\n%s", got)
+		}
+	})
+
+	t.Run("failure keeps the running label", func(t *testing.T) {
+		buf := capture(t)
+		p := render.NewProgress("Bootstrapping the platform", Chain[1].Step)
+		err := runModule(func(*render.LiveStep, string, string) (moduleOutput, error) {
+			return moduleOutput{}, errors.New("exit status 1")
+		}, p, "/repo", Chain[1])
+		if err == nil {
+			t.Fatal("the failure was swallowed")
+		}
+		got := buf.String()
+		if strings.Contains(got, "Istio installed") {
+			t.Errorf("a failed step claimed Istio was installed:\n%s", got)
+		}
+		if !strings.Contains(got, "✗ Installing Istio") {
+			t.Errorf("the failed step lost its label:\n%s", got)
+		}
+	})
 }
 
 func requireBash(t *testing.T) string {

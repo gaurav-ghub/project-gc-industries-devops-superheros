@@ -58,6 +58,48 @@ func TestBootstrapRunsEveryModuleInOrder(t *testing.T) {
 	}
 }
 
+// TestAccessDetailsComeOnceAtTheEnd.
+//
+// The modules used to each print their own URLs and admin passwords the moment
+// they finished — Grafana's three minutes before ArgoCD existed. Now Endurance
+// prints them once, after the run, and **prints no credential at all**: the
+// command that fetches one is the same information with a shelf life, and it
+// does not end up in a screenshot.
+func TestAccessDetailsComeOnceAtTheEnd(t *testing.T) {
+	root := repoRoot(t)
+	buf := capture(t)
+
+	if err := Bootstrap(BootstrapOptions{
+		Root: root, SkipPreflight: true, run: (&fakeRun{}).run,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+
+	for _, want := range []string{"Access", "ArgoCD", "Grafana", "Prometheus", "Alertmanager"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the access block does not mention %s:\n%s", want, got)
+		}
+	}
+	// Once, not once per module.
+	if n := strings.Count(got, "── Access"); n != 1 {
+		t.Errorf("the access block appears %d times, want 1", n)
+	}
+	// It comes after the run, not in the middle of it.
+	if strings.Index(got, "── Access") < strings.Index(got, "Bootstrapping the platform —") {
+		t.Errorf("the access block was printed before the run finished:\n%s", got)
+	}
+	// It hands out commands, never secrets.
+	for _, forbidden := range []string{"Password:", "password:", "Username:"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("bootstrap printed something shaped like a credential (%q):\n%s", forbidden, got)
+		}
+	}
+	if !strings.Contains(got, "argocd-initial-admin-secret") {
+		t.Errorf("it does not say how to fetch the ArgoCD password:\n%s", got)
+	}
+}
+
 // TestBootstrapStopsAtTheFirstFailure — the modules are ordered by dependency,
 // so continuing past a failure means installing ArgoCD into a cluster that does
 // not exist and reporting five errors about one problem.

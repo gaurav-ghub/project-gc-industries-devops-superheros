@@ -281,6 +281,9 @@ verify_prometheus_pods() {
 ###############################################################################
 
 display_monitoring_information() {
+    # Endurance frames the run and shows the access details once, at the end.
+    if framed; then return 0; fi
+
 
     print_section "Monitoring Information"
 

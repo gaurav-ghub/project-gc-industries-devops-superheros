@@ -1,6 +1,7 @@
 package render
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -15,6 +16,97 @@ var bootstrapSteps = []string{
 	"Installing AI alert enrichment",
 	"Installing ArgoCD",
 	"Installing Kyverno policies",
+}
+
+// TestProgressStepsCarryABarNotASpinner.
+//
+// One shape for "in progress": the thin bar on each step is the same bar, in
+// the same green, as the broad one that closes the run. A spinner frame was
+// worse than nothing here — every step of a bootstrap streams output, so the
+// step's line scrolls away within a second and the transcript keeps whichever
+// braille character the animation happened to be on. A bar frozen at "three of
+// six done" still says something true a day later.
+func TestProgressStepsCarryABarNotASpinner(t *testing.T) {
+	r, buf, _ := fixture(t)
+	p := r.NewProgress("Bootstrapping the platform", bootstrapSteps...)
+	p.Start(bootstrapSteps[0]).Done()
+	p.Start(bootstrapSteps[1])
+
+	got := buf.String()
+	if !strings.Contains(got, "[2/6] "+strings.Repeat(IconBarFull, 1)) {
+		t.Errorf("the running step does not carry a bar of the run's progress:\n%s", got)
+	}
+	for _, frame := range spinnerFrames {
+		if strings.Contains(got, frame) {
+			t.Errorf("a spinner frame reached a progress step (%q):\n%s", frame, got)
+		}
+	}
+	if strings.Contains(got, "[2/6] "+IconStep) {
+		t.Errorf("the running step still draws ▸ instead of a bar:\n%s", got)
+	}
+}
+
+// TestProgressBarsAreThinOnStepsAndBroadAtTheEnd — two widths, one meaning.
+func TestProgressBarsAreThinOnStepsAndBroadAtTheEnd(t *testing.T) {
+	r, buf, _ := fixture(t)
+	p := r.NewProgress("Bootstrapping the platform", bootstrapSteps...)
+	for _, name := range bootstrapSteps {
+		p.Start(name).Done()
+	}
+	p.Finish()
+
+	got := buf.String()
+	if !strings.Contains(got, strings.Repeat(IconBarFull, barWidth)) {
+		t.Errorf("no broad bar closes the run:\n%s", got)
+	}
+	if strings.Contains(got, strings.Repeat(IconBarFull, stepBarWidth+1)+IconBarVoid) {
+		t.Errorf("a step's bar is wider than a step's bar should be:\n%s", got)
+	}
+}
+
+// TestDangerRunDrawsARedBar — a teardown filling a green bar as it removes
+// things has the colour exactly backwards. Colour is the only difference: a
+// deletion that worked is still a ✓.
+func TestDangerRunDrawsARedBar(t *testing.T) {
+	var buf bytes.Buffer
+	c := newClock()
+	r := New(&buf, WithColor(true), WithTTY(false), WithClock(c.now))
+
+	p := r.NewProgress("Destroying the platform", "Deleting the kind cluster").Danger()
+	p.Start("Deleting the kind cluster").Done()
+	p.Finish()
+
+	got := buf.String()
+	red := r.bad.Render(IconBarFull)
+	green := r.ok.Render(IconBarFull)
+	if !strings.Contains(got, red[:strings.Index(red, IconBarFull)]) {
+		t.Errorf("a destructive run did not draw its bar in the error colour:\n%q", got)
+	}
+	if strings.Contains(got, green[:strings.Index(green, IconBarFull)]+IconBarFull) {
+		t.Errorf("a destructive run drew a green bar:\n%q", got)
+	}
+	if !strings.Contains(got, r.ok.Render(IconOK)) {
+		t.Errorf("a deletion that worked lost its green ✓:\n%q", got)
+	}
+}
+
+// TestOneStepIsNotOneSteps — "1 steps in 5.9s" is the kind of thing a reader
+// notices and a tool should not say.
+func TestOneStepIsNotOneSteps(t *testing.T) {
+	r, buf, c := fixture(t)
+	p := r.NewProgress("Destroying the platform", "Deleting the kind cluster")
+	s := p.Start("Deleting the kind cluster")
+	c.advance(6 * time.Second)
+	s.Done()
+	p.Finish()
+
+	got := buf.String()
+	if strings.Contains(got, "1 steps") {
+		t.Errorf("the verdict says \"1 steps\":\n%s", got)
+	}
+	if !strings.Contains(got, "1 step in 6.0s") {
+		t.Errorf("the verdict does not read as a sentence:\n%s", got)
+	}
 }
 
 func TestProgressGolden(t *testing.T) {

@@ -242,6 +242,9 @@ register_kyverno_policies() {
 
 
 display_kyverno_policies() {
+    # Endurance frames the run and shows the access details once, at the end.
+    if framed; then return 0; fi
+
 
     print_subsection "Cluster Policies"
 

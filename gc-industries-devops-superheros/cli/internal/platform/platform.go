@@ -64,6 +64,7 @@ const (
 // the suite pins.
 type Module struct {
 	Step   string // what the user reads while it runs
+	Done   string // what the user reads once it has: past tense, not present
 	Script string // repo-relative bash entry point
 }
 
@@ -77,12 +78,12 @@ type Module struct {
 // Application, so GitOps goes before it. bootstrap-kind.sh calls the same
 // modules in the same order for the same reasons.
 var Chain = []Module{
-	{"Creating the kind cluster", clusterScript},
-	{"Installing Istio", "platform/networking/install.sh"},
-	{"Installing monitoring", "platform/monitoring/install.sh"},
-	{"Installing AI alert enrichment", "platform/ai/install.sh"},
-	{"Installing ArgoCD", "platform/gitops/install.sh"},
-	{"Installing Kyverno policies", "platform/security/install.sh"},
+	{"Creating the kind cluster", "Kind cluster ready", clusterScript},
+	{"Installing Istio", "Istio installed", "platform/networking/install.sh"},
+	{"Installing monitoring", "Monitoring installed", "platform/monitoring/install.sh"},
+	{"Installing AI alert enrichment", "AI alert enrichment installed", "platform/ai/install.sh"},
+	{"Installing ArgoCD", "ArgoCD installed", "platform/gitops/install.sh"},
+	{"Installing Kyverno policies", "Kyverno policies installed", "platform/security/install.sh"},
 }
 
 // FindRoot returns the platform repo root.
@@ -195,12 +196,18 @@ func runScript(step *render.LiveStep, root, script string) (out moduleOutput, er
 }
 
 // runModule runs one module under its own step and resolves the step.
+//
+// A step announces itself in the present tense and resolves in the past —
+// "Installing Istio" while it runs, "✓ Istio installed" once it has. A failure
+// keeps the running label: "Istio installed — failed after 44s" would be a
+// sentence arguing with itself.
 func runModule(run runFunc, p *render.Progress, root string, m Module) error {
 	step := p.Start(m.Step)
 	res, err := run(step, root, m.Script)
 	if err != nil {
 		return step.Fail(err)
 	}
+	step.Rename(m.Done)
 	if res.warnings > 0 {
 		step.Warn(plural(res.warnings, "warning") + " from the module")
 		return nil

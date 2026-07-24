@@ -27,6 +27,17 @@
 # have been churn with no reader on the other end.
 #
 
+# framed reports whether Endurance is drawing the frame around this run.
+#
+# The one test every module asks before it decides how much of itself to show.
+# Use it as `if framed; then return 0; fi` — not `framed && return`, which under
+# `set -e` makes the function's exit status the test's.
+framed() {
+
+    [[ -n "${ENDURANCE_FRAMED:-}" ]]
+
+}
+
 log_info() {
 
     echo "$1"
@@ -50,6 +61,25 @@ log_error() {
     echo "error: $1" >&2
 
 }
+
+###############################################################################
+# End-of-module summaries
+#
+# Each module ends by displaying what it installed: URLs, credentials, pod
+# tables, "Status : READY ✅", "Happy GitOps! 🚀". Useful when an operator runs
+# that module by hand — and wrong in the middle of a framed bootstrap, twice
+# over. It is a third visual system, after the one Phase 8 removed; and it
+# announces a platform is ready while three modules are still pending, which
+# is a claim no module is in a position to make.
+#
+# So every `display_*` entry point opens with:
+#
+#     if framed; then return 0; fi
+#
+# and Endurance shows the access details once, at the end, when the whole run
+# has actually finished. Credentials are never printed at all — the CLI prints
+# the command that fetches them.
+###############################################################################
 
 ###############################################################################
 # Section helpers

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // A Progress renders a run whose steps are known in advance.
@@ -25,6 +27,7 @@ type Progress struct {
 	start   time.Time
 	states  []State
 	current *LiveStep
+	danger  bool
 }
 
 // NewProgress announces a run of known steps and returns its handle.
@@ -32,6 +35,18 @@ func (r *Renderer) NewProgress(title string, steps ...string) *Progress {
 	p := &Progress{r: r, title: title, names: append([]string(nil), steps...), start: r.now()}
 	p.states = make([]State, len(p.names))
 	r.Section(title)
+	return p
+}
+
+// Danger marks a run as destructive, so its bars are drawn in the error colour.
+//
+// A full green bar means "everything is here"; at the end of a teardown that is
+// precisely backwards. The glyphs do not change — a deletion that worked is
+// still a ✓ — only the colour of the thing that fills up.
+//
+//	p := render.NewProgress("Destroying the platform", steps...).Danger()
+func (p *Progress) Danger() *Progress {
+	p.danger = true
 	return p
 }
 
@@ -61,8 +76,13 @@ func (p *Progress) Start(name string) *LiveStep {
 		p.i = len(p.names) - 1
 	}
 
+	// The step carries a thin bar of the run's own progress: the same shape and
+	// the same green as the broad bar that closes the run, so "in progress"
+	// looks like one thing throughout. It reads the same frozen in a scrollback
+	// as it does live — three of six done, while the fourth runs — which a
+	// spinner frame stopped mid-animation never did.
 	idx := p.i
-	s := p.r.startStep(name, p.counter(idx+1))
+	s := p.r.startStep(name, p.counter(idx+1), p.Bar(stepBarWidth))
 	s.onFinish = func(st State) {
 		p.states[idx] = st
 		if p.i == idx {
@@ -122,14 +142,28 @@ func (p *Progress) Finish() bool {
 		p.r.Success(fmt.Sprintf("%s — %d of %d steps done, %d skipped  %s",
 			p.title, ok, total, skipped, p.r.faint.Render(elapsed)))
 	default:
-		p.r.Success(fmt.Sprintf("%s — %d steps in %s", p.title, total, elapsed))
+		p.r.Success(fmt.Sprintf("%s — %s in %s", p.title, plural(total, "step"), elapsed))
 	}
 	return failed == 0
 }
 
-const barWidth = 24
+// plural writes a count the way a sentence needs it. "1 steps" is the kind of
+// thing a reader notices and a tool should not say.
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
 
-// Bar renders this run's progress bar at the given width.
+// The broad bar closes a run; the thin one rides on each step of it.
+const (
+	barWidth     = 24
+	stepBarWidth = 10
+)
+
+// Bar renders this run's progress bar at the given width — broad to close the
+// run, thin on each step of it.
 func (p *Progress) Bar(width int) string {
 	done := 0
 	for _, s := range p.states {
@@ -137,15 +171,21 @@ func (p *Progress) Bar(width int) string {
 			done++
 		}
 	}
-	return p.r.bar(done, len(p.names), width)
+	fill := p.r.ok
+	if p.danger {
+		fill = p.r.bad
+	}
+	return p.r.barStyled(done, len(p.names), width, fill)
 }
 
 // Bar renders a standalone progress bar. Exported because a bar is useful
 // outside a Progress — a wait loop, a rollout — and there must be exactly one
 // implementation of what a bar looks like.
-func (r *Renderer) Bar(done, total, width int) string { return r.bar(done, total, width) }
+func (r *Renderer) Bar(done, total, width int) string {
+	return r.barStyled(done, total, width, r.ok)
+}
 
-func (r *Renderer) bar(done, total, width int) string {
+func (r *Renderer) barStyled(done, total, width int, fill lipgloss.Style) string {
 	if width <= 0 {
 		return ""
 	}
@@ -159,6 +199,6 @@ func (r *Renderer) bar(done, total, width int) string {
 		done = 0
 	}
 	full := done * width / total
-	return r.ok.Render(strings.Repeat(IconBarFull, full)) +
+	return fill.Render(strings.Repeat(IconBarFull, full)) +
 		r.faint.Render(strings.Repeat(IconBarVoid, width-full))
 }

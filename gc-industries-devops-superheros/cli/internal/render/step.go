@@ -28,6 +28,7 @@ type LiveStep struct {
 	r      *Renderer
 	msg    string
 	prefix string // progress counter, e.g. "[2/6] "
+	marker string // drawn while running in place of ▸ — a Progress draws a bar
 	start  time.Time
 
 	mu   sync.Mutex
@@ -40,18 +41,43 @@ type LiveStep struct {
 }
 
 // StartStep announces work and returns the handle that finishes it.
-func (r *Renderer) StartStep(msg string) *LiveStep { return r.startStep(msg, "") }
+//
+// Prefer a [Progress] for anything a user watches for more than a moment: its
+// steps carry a bar rather than a spinner, which is the one in-progress shape
+// Endurance draws.
+func (r *Renderer) StartStep(msg string) *LiveStep { return r.startStep(msg, "", "") }
 
-func (r *Renderer) startStep(msg, prefix string) *LiveStep {
-	s := &LiveStep{r: r, msg: msg, prefix: prefix, start: r.now()}
+func (r *Renderer) startStep(msg, prefix, marker string) *LiveStep {
+	s := &LiveStep{r: r, msg: msg, prefix: prefix, marker: marker, start: r.now()}
 	r.mu.Lock()
-	r.parkLocked(prefix + r.head.Render(IconStep) + " " + msg)
+	r.parkLocked(s.runningLine(""))
 	spin := r.spin
 	r.mu.Unlock()
 	if spin {
 		s.startSpinner()
 	}
 	return s
+}
+
+// runningLine is what a step looks like while it is still running.
+//
+// With a marker (a Progress step) it is bar + label + elapsed: one shape for
+// "in progress", the same green as the run's own bar, and a clock that ticks so
+// a three-minute helm install does not look like a hung terminal. Without one
+// it is the ▸ glyph, animated by the spinner.
+func (s *LiveStep) runningLine(frame string) string {
+	head := s.marker
+	if head == "" {
+		if frame == "" {
+			frame = IconStep
+		}
+		return s.prefix + s.r.head.Render(frame) + " " + s.msg
+	}
+	line := s.prefix + head + " " + s.msg
+	if e := s.r.now().Sub(s.start); e >= time.Second {
+		line += "  " + s.r.faint.Render(formatDuration(e))
+	}
+	return line
 }
 
 func (s *LiveStep) startSpinner() {
@@ -71,11 +97,23 @@ func (s *LiveStep) startSpinner() {
 				// Only redraw while the line is still ours. If anything
 				// else has written (a detail line, a streamed subprocess),
 				// the step's line is scrolled away and must be left alone.
-				s.r.reparkLocked(s.prefix + s.r.head.Render(frame) + " " + s.msg)
+				s.r.reparkLocked(s.runningLine(frame))
 				s.r.mu.Unlock()
 			}
 		}
 	}()
+}
+
+// Rename replaces the step's label, so a step can announce itself in the
+// present tense and resolve in the past: "Installing Istio" while it runs,
+// "Istio installed" once it has. Call it before Done; a failure keeps the
+// running label, because "Istio installed — failed" is nonsense.
+func (s *LiveStep) Rename(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.done && msg != "" {
+		s.msg = msg
+	}
 }
 
 func (s *LiveStep) stopSpinner() {

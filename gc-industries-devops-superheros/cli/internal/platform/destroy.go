@@ -32,6 +32,9 @@ type DestroyOptions struct {
 	clusters func() ([]string, error) // tests replace it
 }
 
+// teardown is destroy's one step, in the same shape as a bootstrap module.
+var teardown = Module{"Deleting the kind cluster", "Kind cluster deleted", destroyScript}
+
 // kindClusters lists the kind clusters on this machine.
 func kindClusters() ([]string, error) {
 	out, err := exec.Command("kind", "get", "clusters").CombinedOutput()
@@ -107,8 +110,16 @@ func Destroy(opts DestroyOptions) error {
 		}
 	}
 
-	p := render.NewProgress("Destroying the platform", "Deleting the kind cluster")
-	if err := runModule(run, p, root, Module{"Deleting the kind cluster", destroyScript}); err != nil {
+	// Danger: a teardown that fills a green bar as it removes things has the
+	// colour exactly backwards.
+	step := teardown
+	if known && !present {
+		// The script still runs — it clears a stale context — but "✓ Kind
+		// cluster deleted" would be a claim about a cluster that was not there.
+		step.Done = "No kind cluster to delete"
+	}
+	p := render.NewProgress("Destroying the platform", step.Step).Danger()
+	if err := runModule(run, p, root, step); err != nil {
 		p.Finish()
 		return err
 	}
