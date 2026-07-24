@@ -1,4 +1,4 @@
-// Package canary implements `launchpad canary` — running several versions of
+// Package canary implements `endurance canary` — running several versions of
 // one service at once and choosing how much traffic each one gets.
 //
 // The distinction from `release` is the whole point of the feature. A release
@@ -9,7 +9,7 @@
 // after. Being able to move traffic without moving workloads is what makes a
 // rollback instant and a bad version cheap.
 //
-// Like every other LaunchPad command, this one only writes files. ArgoCD is
+// Like every other Endurance command, this one only writes files. ArgoCD is
 // still the only thing that talks to the cluster.
 package canary
 
@@ -19,12 +19,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gc-ghub/launchpad/internal/gitops"
-	"github.com/gc-ghub/launchpad/internal/notify"
-	"github.com/gc-ghub/launchpad/internal/policy"
-	"github.com/gc-ghub/launchpad/internal/render"
-	"github.com/gc-ghub/launchpad/internal/spec"
-	"github.com/gc-ghub/launchpad/internal/version"
+	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/notify"
+	"github.com/gc-ghub/endurance/internal/policy"
+	"github.com/gc-ghub/endurance/internal/render"
+	"github.com/gc-ghub/endurance/internal/spec"
+	"github.com/gc-ghub/endurance/internal/version"
 )
 
 // Options configures a traffic shift.
@@ -151,7 +151,7 @@ func Shift(opts Options) error {
 	}
 
 	if opts.Commit {
-		msg := fmt.Sprintf("launchpad: canary %s/%s %s", change.App.Name, change.Service, summarizePlain(change.Deltas))
+		msg := fmt.Sprintf("endurance: canary %s/%s %s", change.App.Name, change.Service, summarizePlain(change.Deltas))
 		if err := gitops.Commit(opts.Root, change.Written, msg); err != nil {
 			render.Warn("commit skipped: " + err.Error())
 		} else {
@@ -179,7 +179,7 @@ func Shift(opts Options) error {
 		[]string{
 			"git push the platform repo so ArgoCD can see it",
 			"kubectl -n " + change.App.Namespace + " get virtualservice " + change.Service + " -o yaml   to confirm the weights",
-			"launchpad canary status " + change.App.Name + "   to see the split LaunchPad believes in",
+			"endurance canary status " + change.App.Name + "   to see the split Endurance believes in",
 		},
 	)
 	return nil

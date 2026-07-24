@@ -1,4 +1,4 @@
-# Compiled LaunchPad binaries — build locally with `go build`, don't commit.
-launchpad
-launchpad.exe
+# Compiled Endurance binaries — build locally with `go build`, don't commit.
+endurance
+endurance.exe
 /dist/

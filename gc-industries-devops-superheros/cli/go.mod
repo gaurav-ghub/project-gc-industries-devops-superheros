@@ -1,4 +1,4 @@
-module github.com/gc-ghub/launchpad
+module github.com/gc-ghub/endurance
 
 go 1.25.4
 

@@ -38,8 +38,8 @@ func TestNotifyConfiguredButDisabledIsRejected(t *testing.T) {
 func TestNotifyAcceptsEitherDestination(t *testing.T) {
 	for _, n := range []Notify{
 		{Enabled: true, Slack: "superheros-deploys"},
-		{Enabled: true, Webhook: "launchpad-sink"},
-		{Enabled: true, Slack: "superheros-deploys", Webhook: "launchpad-sink"},
+		{Enabled: true, Webhook: "endurance-sink"},
+		{Enabled: true, Slack: "superheros-deploys", Webhook: "endurance-sink"},
 	} {
 		if err := notifyApp(n).Validate(); err != nil {
 			t.Errorf("%+v should be valid: %v", n, err)
@@ -153,9 +153,9 @@ func TestNotifyWarnsAboutExcludedStages(t *testing.T) {
 }
 
 func TestRecipientsAreStable(t *testing.T) {
-	n := Notify{Enabled: true, Slack: "deploys", Webhook: "launchpad-sink"}
+	n := Notify{Enabled: true, Slack: "deploys", Webhook: "endurance-sink"}
 	got := strings.Join(n.Recipients(), ",")
-	if got != "slack:deploys,webhook:launchpad-sink" {
+	if got != "slack:deploys,webhook:endurance-sink" {
 		t.Errorf("recipients should be stable and sorted, got %q", got)
 	}
 }

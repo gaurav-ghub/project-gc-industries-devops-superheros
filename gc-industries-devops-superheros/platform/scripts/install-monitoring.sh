@@ -26,7 +26,7 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MONITORING_VALUES="${SCRIPTS_DIR}/../monitoring/values"
 
 echo "========================================"
-echo "GC Industries Monitoring Installer"
+echo "Endurance Monitoring Installer"
 echo "Environment: ${ENVIRONMENT}"
 echo "========================================"
 

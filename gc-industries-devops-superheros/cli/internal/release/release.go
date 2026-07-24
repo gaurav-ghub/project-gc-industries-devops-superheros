@@ -1,23 +1,23 @@
-// Package release implements `launchpad release` — promoting a new image for
+// Package release implements `endurance release` — promoting a new image for
 // one service of a registered application.
 //
 // Onboarding is the one-time act of defining an application; release is the
 // everyday one. A developer's code change produces a new image in the
 // application repo's CI, and release is how that image reaches the cluster:
 // bump exactly one tag, commit, and let ArgoCD roll exactly one Deployment.
-// Like every other LaunchPad command it only writes files — ArgoCD deploys.
+// Like every other Endurance command it only writes files — ArgoCD deploys.
 package release
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/gc-ghub/launchpad/internal/gitops"
-	"github.com/gc-ghub/launchpad/internal/notify"
-	"github.com/gc-ghub/launchpad/internal/policy"
-	"github.com/gc-ghub/launchpad/internal/render"
-	"github.com/gc-ghub/launchpad/internal/spec"
-	"github.com/gc-ghub/launchpad/internal/version"
+	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/notify"
+	"github.com/gc-ghub/endurance/internal/policy"
+	"github.com/gc-ghub/endurance/internal/render"
+	"github.com/gc-ghub/endurance/internal/spec"
+	"github.com/gc-ghub/endurance/internal/version"
 )
 
 // Options configures a release.
@@ -92,7 +92,7 @@ func Run(opts Options) error {
 	}
 
 	if opts.Commit {
-		msg := fmt.Sprintf("launchpad: release %s/%s %s", bump.App.Name, bump.Target(), bump.NewTag)
+		msg := fmt.Sprintf("endurance: release %s/%s %s", bump.App.Name, bump.Target(), bump.NewTag)
 		if err := gitops.Commit(opts.Root, bump.Written, msg); err != nil {
 			render.Warn("commit skipped: " + err.Error())
 		} else {
@@ -121,7 +121,7 @@ func Run(opts Options) error {
 		},
 		[]string{
 			"git push the platform repo so ArgoCD can see it",
-			"launchpad status " + bump.App.Name + "   to watch only " + bump.Target() + " roll",
+			"endurance status " + bump.App.Name + "   to watch only " + bump.Target() + " roll",
 		},
 	)
 	return nil

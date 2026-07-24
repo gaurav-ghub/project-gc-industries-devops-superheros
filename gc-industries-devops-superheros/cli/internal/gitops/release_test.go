@@ -61,7 +61,7 @@ func TestSetServiceTagBumpsOnlyTheNamedService(t *testing.T) {
 		}
 	}
 
-	// The registry entry must agree with the values file, or `launchpad list`
+	// The registry entry must agree with the values file, or `endurance list`
 	// and ArgoCD would disagree about what is deployed.
 	app, err := Load(root, "superheros")
 	if err != nil {

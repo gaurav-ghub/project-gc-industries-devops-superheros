@@ -2,7 +2,7 @@
 
 #########################################################################
 # File: utils.sh
-# Description: Shared utility library for the GC Industries Cloud Native Platform.
+# Description: Shared utility library for the Endurance.
 # 
 # Responsibilities:
 # This shared utility library provides reusable helper functions for all
@@ -109,7 +109,7 @@ readonly KIND_CONFIG="${PROJECT_ROOT}/kind-config.yaml"
 print_banner() {
 
     echo "=============================================================="
-    echo "🚀 ${PLATFORM_NAME}"
+    echo "🚀 ${PLATFORM_NAME} — ${PLATFORM_TAGLINE}"
     echo "=============================================================="
     echo
     echo "Platform Version : ${PLATFORM_VERSION}"

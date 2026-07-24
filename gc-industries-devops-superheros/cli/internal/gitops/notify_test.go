@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 
@@ -68,7 +68,7 @@ func TestFailedSubscribesToBothWaysToFail(t *testing.T) {
 }
 
 func TestEveryDestinationGetsEveryTrigger(t *testing.T) {
-	subs := Subscriptions(spec.Notify{Enabled: true, Slack: "deploys", Webhook: "launchpad-sink"})
+	subs := Subscriptions(spec.Notify{Enabled: true, Slack: "deploys", Webhook: "endurance-sink"})
 	// 4 outcome triggers x 2 destinations.
 	if len(subs) != 8 {
 		t.Fatalf("expected 8 subscriptions, got %d: %v", len(subs), subs)
@@ -77,7 +77,7 @@ func TestEveryDestinationGetsEveryTrigger(t *testing.T) {
 		if s.Service == "slack" && s.Recipient != "deploys" {
 			t.Errorf("slack subscription should carry the channel, got %q", s.Recipient)
 		}
-		if s.Service == "launchpad-sink" && s.Recipient != "" {
+		if s.Service == "endurance-sink" && s.Recipient != "" {
 			t.Errorf("a webhook service carries its URL on the platform, so its recipient must be empty, got %q", s.Recipient)
 		}
 	}
@@ -85,13 +85,13 @@ func TestEveryDestinationGetsEveryTrigger(t *testing.T) {
 
 func TestSubscriptionsAreRenderedAsAnnotations(t *testing.T) {
 	got := generatedApplication(t, notifiedApp(spec.Notify{
-		Enabled: true, Slack: "superheros-deploys", Webhook: "launchpad-sink",
+		Enabled: true, Slack: "superheros-deploys", Webhook: "endurance-sink",
 	}))
 	for _, want := range []string{
 		`notifications.argoproj.io/subscribe.on-deployed.slack: "superheros-deploys"`,
-		`notifications.argoproj.io/subscribe.on-deployed.launchpad-sink: ""`,
+		`notifications.argoproj.io/subscribe.on-deployed.endurance-sink: ""`,
 		`notifications.argoproj.io/subscribe.on-sync-running.slack: "superheros-deploys"`,
-		`notifications.argoproj.io/subscribe.on-health-degraded.launchpad-sink: ""`,
+		`notifications.argoproj.io/subscribe.on-health-degraded.endurance-sink: ""`,
 		`notifications.argoproj.io/subscribe.on-sync-failed.slack: "superheros-deploys"`,
 	} {
 		if !strings.Contains(got, want) {
@@ -101,7 +101,7 @@ func TestSubscriptionsAreRenderedAsAnnotations(t *testing.T) {
 }
 
 func TestGeneratedApplicationIsStillValidYAMLWithAnnotations(t *testing.T) {
-	got := generatedApplication(t, notifiedApp(spec.Notify{Enabled: true, Webhook: "launchpad-sink"}))
+	got := generatedApplication(t, notifiedApp(spec.Notify{Enabled: true, Webhook: "endurance-sink"}))
 	var obj struct {
 		Metadata struct {
 			Name        string            `yaml:"name"`
@@ -122,7 +122,7 @@ func TestGeneratedApplicationIsStillValidYAMLWithAnnotations(t *testing.T) {
 func TestSubscriptionsAreByteStableAcrossRuns(t *testing.T) {
 	// application.yaml is regenerated on every onboard; a map iteration leaking
 	// into the output would show up as a spurious diff in every pull request.
-	app := notifiedApp(spec.Notify{Enabled: true, Slack: "deploys", Webhook: "launchpad-sink"})
+	app := notifiedApp(spec.Notify{Enabled: true, Slack: "deploys", Webhook: "endurance-sink"})
 	first := generatedApplication(t, app)
 	for i := 0; i < 5; i++ {
 		if got := generatedApplication(t, app); got != first {
@@ -133,7 +133,7 @@ func TestSubscriptionsAreByteStableAcrossRuns(t *testing.T) {
 
 func TestNarrowedStagesNarrowTheAnnotations(t *testing.T) {
 	got := generatedApplication(t, notifiedApp(spec.Notify{
-		Enabled: true, Webhook: "launchpad-sink", Stages: []spec.Stage{spec.StageFailed},
+		Enabled: true, Webhook: "endurance-sink", Stages: []spec.Stage{spec.StageFailed},
 	}))
 	if strings.Contains(got, "on-deployed") {
 		t.Errorf("healthy was not subscribed, so on-deployed must not appear:\n%s", got)
@@ -149,7 +149,7 @@ func TestASubscriptionNeverReachesAWorkload(t *testing.T) {
 	// gets paged would restart the application. values.yaml is the chart's
 	// input, so nothing about notifications may appear in it.
 	root := t.TempDir()
-	app := notifiedApp(spec.Notify{Enabled: true, Slack: "superheros-deploys", Webhook: "launchpad-sink"})
+	app := notifiedApp(spec.Notify{Enabled: true, Slack: "superheros-deploys", Webhook: "endurance-sink"})
 	if _, err := Generate(root, app, "r", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestASubscriptionNeverReachesAWorkload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"notify", "notifications", "launchpad-sink", "superheros-deploys"} {
+	for _, forbidden := range []string{"notify", "notifications", "endurance-sink", "superheros-deploys"} {
 		if strings.Contains(string(values), forbidden) {
 			t.Errorf("values.yaml must not mention %q — it would put a subscription in a pod spec:\n%s", forbidden, values)
 		}
@@ -168,7 +168,7 @@ func TestReleaseDoesNotRewriteSubscriptions(t *testing.T) {
 	// application.yaml is onboarding's output. Phase 2 asserted a release never
 	// touches it; now that it also carries who gets paged, that matters more.
 	root := t.TempDir()
-	app := notifiedApp(spec.Notify{Enabled: true, Webhook: "launchpad-sink"})
+	app := notifiedApp(spec.Notify{Enabled: true, Webhook: "endurance-sink"})
 	if _, err := Generate(root, app, "r", ""); err != nil {
 		t.Fatal(err)
 	}

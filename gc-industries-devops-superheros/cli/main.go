@@ -1,7 +1,7 @@
-// Command launchpad is the developer-facing CLI of the LaunchPad IDP.
+// Command endurance is the developer-facing CLI of the Endurance IDP.
 //
-// A developer runs `launchpad onboard` to register and deploy an application,
-// `launchpad release` (later) to promote a new image, and `launchpad list` /
+// A developer runs `endurance onboard` to register and deploy an application,
+// `endurance release` (later) to promote a new image, and `endurance list` /
 // `status` to see what's running. The CLI only ever writes GitOps files and
 // commits — ArgoCD is the only thing that deploys.
 package main
@@ -14,14 +14,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gc-ghub/launchpad/internal/canary"
-	"github.com/gc-ghub/launchpad/internal/gitops"
-	"github.com/gc-ghub/launchpad/internal/notify"
-	"github.com/gc-ghub/launchpad/internal/onboard"
-	"github.com/gc-ghub/launchpad/internal/policy"
-	"github.com/gc-ghub/launchpad/internal/release"
-	"github.com/gc-ghub/launchpad/internal/render"
-	"github.com/gc-ghub/launchpad/internal/version"
+	"github.com/gc-ghub/endurance/internal/canary"
+	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/notify"
+	"github.com/gc-ghub/endurance/internal/onboard"
+	"github.com/gc-ghub/endurance/internal/policy"
+	"github.com/gc-ghub/endurance/internal/release"
+	"github.com/gc-ghub/endurance/internal/render"
+	"github.com/gc-ghub/endurance/internal/version"
 )
 
 // defaultGitopsRepo is the platform repo ArgoCD watches. Overridable per command.
@@ -52,7 +52,7 @@ func main() {
 	case "status":
 		err = cmdStatus(args)
 	case "version", "--version", "-v":
-		fmt.Println("launchpad " + version.Current)
+		fmt.Println("endurance " + version.Current)
 	case "help", "--help", "-h":
 		usage()
 	default:
@@ -106,7 +106,7 @@ func parsePositional(fs *flag.FlagSet, args []string, usage string) (string, err
 }
 
 // cmdRelease promotes one service of one application to a new image tag.
-// Usage: launchpad release <app> --service <svc> --tag <tag>
+// Usage: endurance release <app> --service <svc> --tag <tag>
 func cmdRelease(args []string) error {
 	fs := flag.NewFlagSet("release", flag.ExitOnError)
 	root := fs.String("root", ".", "platform repo root")
@@ -118,7 +118,7 @@ func cmdRelease(args []string) error {
 	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
 	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
 	noNotify := fs.Bool("no-notify", false, "do not send the CLI notification for this run")
-	app, err := parsePositional(fs, args, "launchpad release <app> --service <svc> --tag <tag>")
+	app, err := parsePositional(fs, args, "endurance release <app> --service <svc> --tag <tag>")
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func cmdRelease(args []string) error {
 // application, when, and which half of the platform tells them.
 func cmdNotify(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: launchpad notify status <app> | launchpad notify test <app>")
+		return fmt.Errorf("usage: endurance notify status <app> | endurance notify test <app>")
 	}
 	sub, rest := args[0], args[1:]
 
@@ -142,13 +142,13 @@ func cmdNotify(args []string) error {
 
 	switch sub {
 	case "status":
-		app, err := parsePositional(fs, rest, "launchpad notify status <app>")
+		app, err := parsePositional(fs, rest, "endurance notify status <app>")
 		if err != nil {
 			return err
 		}
 		return notify.Status(*root, app)
 	case "test":
-		app, err := parsePositional(fs, rest, "launchpad notify test <app>")
+		app, err := parsePositional(fs, rest, "endurance notify test <app>")
 		if err != nil {
 			return err
 		}
@@ -168,7 +168,7 @@ func cmdNotify(args []string) error {
 // distinction that makes a canary safe.
 func cmdCanary(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: launchpad canary status <app> | canary set <app> --service <svc> --weights v1=90,v2=10 | canary promote <app> --service <svc> --version <v>")
+		return fmt.Errorf("usage: endurance canary status <app> | canary set <app> --service <svc> --weights v1=90,v2=10 | canary promote <app> --service <svc> --version <v>")
 	}
 	sub, rest := args[0], args[1:]
 
@@ -186,14 +186,14 @@ func cmdCanary(args []string) error {
 
 	switch sub {
 	case "status":
-		app, err := parsePositional(fs, rest, "launchpad canary status <app>")
+		app, err := parsePositional(fs, rest, "endurance canary status <app>")
 		if err != nil {
 			return err
 		}
 		return canary.Status(*root, app)
 
 	case "set":
-		app, err := parsePositional(fs, rest, "launchpad canary set <app> --service <svc> --weights v1=90,v2=10")
+		app, err := parsePositional(fs, rest, "endurance canary set <app> --service <svc> --weights v1=90,v2=10")
 		if err != nil {
 			return err
 		}
@@ -212,7 +212,7 @@ func cmdCanary(args []string) error {
 		})
 
 	case "promote":
-		app, err := parsePositional(fs, rest, "launchpad canary promote <app> --service <svc> --version <v>")
+		app, err := parsePositional(fs, rest, "endurance canary promote <app> --service <svc> --version <v>")
 		if err != nil {
 			return err
 		}
@@ -253,7 +253,7 @@ func cmdCanary(args []string) error {
 // without staging a release is what makes the rules reviewable.
 func cmdPolicy(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: launchpad policy list | launchpad policy check <app>")
+		return fmt.Errorf("usage: endurance policy list | endurance policy check <app>")
 	}
 	sub, rest := args[0], args[1:]
 
@@ -268,7 +268,7 @@ func cmdPolicy(args []string) error {
 		}
 		return policyList(*root, *dir)
 	case "check":
-		app, err := parsePositional(fs, rest, "launchpad policy check <app>")
+		app, err := parsePositional(fs, rest, "endurance policy check <app>")
 		if err != nil {
 			return err
 		}
@@ -349,7 +349,7 @@ func cmdList(args []string) error {
 	}
 	render.Section("Registered applications")
 	if len(apps) == 0 {
-		render.Info("none yet — run `launchpad onboard`")
+		render.Info("none yet — run `endurance onboard`")
 		return nil
 	}
 	for _, a := range apps {
@@ -361,7 +361,7 @@ func cmdList(args []string) error {
 func cmdStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	root := fs.String("root", ".", "platform repo root")
-	name, err := parsePositional(fs, args, "launchpad status <app>")
+	name, err := parsePositional(fs, args, "endurance status <app>")
 	if err != nil {
 		return err
 	}
@@ -397,7 +397,7 @@ func cmdStatus(args []string) error {
 
 func usage() {
 	render.Banner(version.Current)
-	fmt.Println(`Usage: launchpad <command> [flags]
+	fmt.Println(`Usage: endurance <command> [flags]
 
 Commands:
   onboard             Register and generate GitOps files for an application
@@ -460,7 +460,7 @@ deploying, healthy, failed — because it is the only thing that deploys. Set
 ` + notify.EnvWebhook + ` (any JSON receiver) to enable the CLI half.
 
 Examples:
-  launchpad release superheros --service catalog --version v2 --tag v2-abc1234
-  launchpad canary set superheros --service catalog --weights v1=80,v2=10,v3=10
-  launchpad canary promote superheros --service catalog --version v3`)
+  endurance release superheros --service catalog --version v2 --tag v2-abc1234
+  endurance canary set superheros --service catalog --weights v1=80,v2=10,v3=10
+  endurance canary promote superheros --service catalog --version v3`)
 }

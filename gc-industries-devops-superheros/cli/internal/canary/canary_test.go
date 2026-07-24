@@ -3,7 +3,7 @@ package canary
 import (
 	"testing"
 
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/spec"
 )
 
 func TestParseWeights(t *testing.T) {

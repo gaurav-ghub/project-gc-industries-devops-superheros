@@ -1,13 +1,13 @@
 ###############################################################################
-# ArgoCD values — GC Industries Cloud Native Platform
+# ArgoCD values — Endurance
 #
-# Everything below configures the *outcome* half of LaunchPad's developer
+# Everything below configures the *outcome* half of Endurance's developer
 # notifications (Phase 5).
 #
 # The platform owns three things here: which notification services exist, what
 # a message looks like, and which cluster conditions are worth a message. What
 # it deliberately does NOT own is who receives them — that is per-application,
-# declared in specs/<app>.yaml and rendered by `launchpad onboard` into
+# declared in specs/<app>.yaml and rendered by `endurance onboard` into
 # subscription annotations on apps/<app>/application.yaml.
 #
 # Why this half exists at all: the CLI knows a developer asked for something,
@@ -28,7 +28,7 @@ notifications:
   #--------------------------------------------------------------------------
   # Services — where a message can be delivered.
   #
-  # launchpad-sink is a plain JSON receiver inside the cluster. It exists so
+  # endurance-sink is a plain JSON receiver inside the cluster. It exists so
   # that notifications are verifiable on a laptop with no Slack workspace, no
   # bot token and no internet account: deploy the sink, subscribe an app to it,
   # and `kubectl logs` shows the exact payload ArgoCD produced.
@@ -39,8 +39,8 @@ notifications:
   # file that is pushed to GitHub.
   #--------------------------------------------------------------------------
   notifiers:
-    service.webhook.launchpad-sink: |
-      url: http://launchpad-notify-sink.argocd.svc.cluster.local:8080
+    service.webhook.endurance-sink: |
+      url: http://endurance-notify-sink.argocd.svc.cluster.local:8080
       headers:
       - name: Content-Type
         value: application/json
@@ -55,11 +55,11 @@ notifications:
   # "catalog v2" means "asked for" or "running".
   #--------------------------------------------------------------------------
   templates:
-    template.launchpad-deploying: |
+    template.endurance-deploying: |
       message: |
-        LaunchPad · {{.app.metadata.name}} is deploying — ArgoCD is syncing revision {{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}.
+        Endurance · {{.app.metadata.name}} is deploying — ArgoCD is syncing revision {{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}.
       webhook:
-        launchpad-sink:
+        endurance-sink:
           method: POST
           body: |
             {
@@ -70,12 +70,12 @@ notifications:
               "sync": "{{.app.status.sync.status}}",
               "health": "{{.app.status.health.status}}",
               "revision": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}",
-              "text": "LaunchPad - {{.app.metadata.name}} is deploying (ArgoCD is syncing)."
+              "text": "Endurance - {{.app.metadata.name}} is deploying (ArgoCD is syncing)."
             }
         slack-incoming:
           method: POST
           body: |
-            {"text": ":hourglass_flowing_sand: LaunchPad · *{{.app.metadata.name}}* is deploying — ArgoCD is syncing `{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}`."}
+            {"text": ":hourglass_flowing_sand: Endurance · *{{.app.metadata.name}}* is deploying — ArgoCD is syncing `{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}`."}
       slack:
         attachments: |
           [{
@@ -89,11 +89,11 @@ notifications:
             ]
           }]
 
-    template.launchpad-healthy: |
+    template.endurance-healthy: |
       message: |
-        LaunchPad · {{.app.metadata.name}} is deployed and healthy at revision {{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}.
+        Endurance · {{.app.metadata.name}} is deployed and healthy at revision {{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}.
       webhook:
-        launchpad-sink:
+        endurance-sink:
           method: POST
           body: |
             {
@@ -104,12 +104,12 @@ notifications:
               "sync": "{{.app.status.sync.status}}",
               "health": "{{.app.status.health.status}}",
               "revision": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}",
-              "text": "LaunchPad - {{.app.metadata.name}} is deployed and healthy."
+              "text": "Endurance - {{.app.metadata.name}} is deployed and healthy."
             }
         slack-incoming:
           method: POST
           body: |
-            {"text": ":white_check_mark: LaunchPad · *{{.app.metadata.name}}* is deployed and healthy at `{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}`."}
+            {"text": ":white_check_mark: Endurance · *{{.app.metadata.name}}* is deployed and healthy at `{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}`."}
       slack:
         attachments: |
           [{
@@ -123,11 +123,11 @@ notifications:
             ]
           }]
 
-    template.launchpad-failed: |
+    template.endurance-failed: |
       message: |
-        LaunchPad · {{.app.metadata.name}} FAILED — sync {{.app.status.sync.status}}, health {{.app.status.health.status}}.
+        Endurance · {{.app.metadata.name}} FAILED — sync {{.app.status.sync.status}}, health {{.app.status.health.status}}.
       webhook:
-        launchpad-sink:
+        endurance-sink:
           method: POST
           body: |
             {
@@ -138,12 +138,12 @@ notifications:
               "sync": "{{.app.status.sync.status}}",
               "health": "{{.app.status.health.status}}",
               "revision": "{{if .app.status.sync.revisions}}{{index .app.status.sync.revisions 0}}{{end}}",
-              "text": "LaunchPad - {{.app.metadata.name}} FAILED (sync {{.app.status.sync.status}}, health {{.app.status.health.status}})."
+              "text": "Endurance - {{.app.metadata.name}} FAILED (sync {{.app.status.sync.status}}, health {{.app.status.health.status}})."
             }
         slack-incoming:
           method: POST
           body: |
-            {"text": ":x: LaunchPad · *{{.app.metadata.name}}* failed — sync `{{.app.status.sync.status}}`, health `{{.app.status.health.status}}`."}
+            {"text": ":x: Endurance · *{{.app.metadata.name}}* failed — sync `{{.app.status.sync.status}}`, health `{{.app.status.health.status}}`."}
       slack:
         attachments: |
           [{
@@ -160,7 +160,7 @@ notifications:
   #--------------------------------------------------------------------------
   # Triggers — when a message is worth sending.
   #
-  # These four names are the contract LaunchPad's notify.stages compiles to:
+  # These four names are the contract Endurance's notify.stages compiles to:
   #
   #   deploying  ->  on-sync-running
   #   healthy    ->  on-deployed
@@ -175,7 +175,7 @@ notifications:
   # minutes. Without it the first useful message would train everyone to ignore
   # the channel by the end of the afternoon.
   #
-  # It keys on `revisions[0]`, not `revision`. LaunchPad's Applications are
+  # It keys on `revisions[0]`, not `revision`. Endurance's Applications are
   # multi-source (the chart + a `$values` source), and for a multi-source app
   # ArgoCD populates `status.sync.revisions` (plural) and leaves
   # `status.sync.revision` (singular) empty. Keying oncePer on the empty
@@ -187,20 +187,20 @@ notifications:
     trigger.on-sync-running: |
       - description: A sync has started
         when: app.status.operationState != nil and app.status.operationState.phase in ['Running']
-        send: [launchpad-deploying]
+        send: [endurance-deploying]
 
     trigger.on-deployed: |
       - description: The application is synced and healthy
         when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
         oncePer: app.status.sync.revisions[0]
-        send: [launchpad-healthy]
+        send: [endurance-healthy]
 
     trigger.on-health-degraded: |
       - description: The application has degraded
         when: app.status.health.status == 'Degraded'
-        send: [launchpad-failed]
+        send: [endurance-failed]
 
     trigger.on-sync-failed: |
       - description: The sync itself failed
         when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
-        send: [launchpad-failed]
+        send: [endurance-failed]

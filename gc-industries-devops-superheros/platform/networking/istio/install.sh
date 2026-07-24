@@ -5,7 +5,7 @@
 #
 # Description:
 # Installs Istio Service Mesh for the
-# GC Industries Cloud Native Platform.
+# Endurance.
 #
 # Purpose:
 # This script installs and configures Istio as the

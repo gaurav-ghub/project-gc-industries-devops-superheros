@@ -1,18 +1,18 @@
-# LaunchPad application spec — the INPUT to `launchpad onboard --from`.
+# Endurance application spec — the INPUT to `endurance onboard --from`.
 #
 # apps/superheros/ is generated from this file and is overwritten on every
 # onboard run, so a fix applied by hand there does not survive. Fix it here.
 # (Phase 1 lost the namespace fix exactly that way: an onboard re-run against a
 # stale ad-hoc spec silently reverted `superheros` to `superheros-lp`.)
 #
-#   launchpad onboard --root . --from specs/superheros.yaml
+#   endurance onboard --root . --from specs/superheros.yaml
 #
 # Images carry their registry host explicitly. Kubernetes would resolve a bare
 # "dockergc00/..." against Docker Hub just fine, but the restrict-image-registries
 # ClusterPolicy matches the literal string against "docker.io/*" — so an
 # unqualified reference runs and is rejected at the same time.
 #
-# resources and security are omitted deliberately: LaunchPad materializes its
+# resources and security are omitted deliberately: Endurance materializes its
 # platform defaults into apps/superheros/values.yaml, which is what the policy
 # gate then validates. Set them here only to override a default.
 
@@ -40,7 +40,7 @@ mesh:
 #
 # `webhook` names a service the platform configured, never a URL — an
 # incoming-webhook URL is a credential, and this file is pushed to GitHub.
-# launchpad-sink is the in-cluster JSON receiver, so this works on a laptop
+# endurance-sink is the in-cluster JSON receiver, so this works on a laptop
 # with no Slack account. For Slack, either point webhook at `slack-incoming`
 # (an incoming-webhook URL, two minutes to set up) or set `slack: <channel>`
 # (needs a bot token); see platform/gitops/argocd/values.slack.yaml.example.
@@ -49,7 +49,7 @@ mesh:
 # told your own deploys failed.
 notify:
   enabled: true
-  webhook: launchpad-sink
+  webhook: endurance-sink
 
 services:
   - name: frontend

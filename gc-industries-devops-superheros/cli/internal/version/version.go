@@ -1,5 +1,5 @@
-// Package version holds the single source of truth for the LaunchPad CLI
-// version, so every banner the tool prints agrees with `launchpad version`.
+// Package version holds the single source of truth for the Endurance CLI
+// version, so every banner the tool prints agrees with `endurance version`.
 package version
 
 // Current is the released CLI version.
@@ -9,4 +9,5 @@ package version
 //	v0.3.0  Kyverno policy gate (pre-commit validation of generated manifests)
 //	v0.4.0  canary (per-service versions + Istio traffic weights)
 //	v0.5.0  developer notifications (CLI intent + ArgoCD outcome)
-const Current = "v0.5.0"
+//	v0.6.0  Endurance rebrand (LaunchPad → Endurance) + ring-ship banner
+const Current = "v0.6.0"

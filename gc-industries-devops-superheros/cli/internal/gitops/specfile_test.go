@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/spec"
 )
 
 // The real specs/superheros.yaml is dense with explanatory comments, which is
 // exactly what a YAML round-trip would delete. The fixture keeps them.
-const specFixture = `# LaunchPad application spec — the INPUT to onboard --from.
+const specFixture = `# Endurance application spec — the INPUT to onboard --from.
 name: superheros
 namespace: superheros
 mesh:
@@ -99,7 +99,7 @@ func TestSyncSpecWeightsKeepsCommentsAndInlineComments(t *testing.T) {
 	}
 	data, _ := os.ReadFile(path)
 	got := string(data)
-	if !strings.Contains(got, "# LaunchPad application spec") {
+	if !strings.Contains(got, "# Endurance application spec") {
 		t.Error("the file header comment was lost")
 	}
 	if !strings.Contains(got, "# catalog is the canary.") {

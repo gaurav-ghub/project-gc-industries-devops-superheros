@@ -1,7 +1,7 @@
-# Helm values for Kyverno on the GC Industries Cloud Native Platform (kind).
+# Helm values for Kyverno on the Endurance (kind).
 #
 # Kyverno is the *admission-time* half of the platform's policy story. The
-# `launchpad` CLI evaluates the same ClusterPolicies in infra/kyverno_policy/
+# `endurance` CLI evaluates the same ClusterPolicies in infra/kyverno_policy/
 # before a commit is ever made; Kyverno is the backstop that catches anything
 # which reaches the cluster by another route.
 
@@ -60,7 +60,7 @@ config:
   # restrict-image-registries accepts an image reference that never actually
   # named a registry.
   #
-  # Turning it off makes admission agree exactly with the `launchpad` policy
+  # Turning it off makes admission agree exactly with the `endurance` policy
   # gate, which judges the literal string in the manifest. The platform would
   # rather a developer write the registry down than have two systems disagree
   # about whether their image is compliant.

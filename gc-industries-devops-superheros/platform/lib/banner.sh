@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
 #
-# LaunchPad DevX Platform
+# Endurance DevX Platform
 # Banner
 #
 
 print_banner() {
 
     echo "=============================================================="
-    echo "      🚀 ${PLATFORM_NAME}"
+    echo "      🚀 ${PLATFORM_NAME} — ${PLATFORM_TAGLINE}"
     echo "=============================================================="
     echo
     echo "Platform Version : ${PLATFORM_VERSION}"

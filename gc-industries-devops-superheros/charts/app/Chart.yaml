@@ -1,7 +1,7 @@
 apiVersion: v2
 name: app
 description: >-
-  LaunchPad generic application chart. Renders one Deployment + Service per entry
+  Endurance generic application chart. Renders one Deployment + Service per entry
   in .Values.services, so any application — single-service or multi-service, any
   language — deploys from the same chart. This is what makes the platform
   application-agnostic.

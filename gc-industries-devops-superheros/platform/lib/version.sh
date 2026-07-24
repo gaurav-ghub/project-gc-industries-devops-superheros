@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
 #
-# LaunchPad DevX Platform
+# Endurance DevX Platform
 # Platform Information
 #
 
-readonly PLATFORM_NAME="GC Industries Cloud Native Platform"
+readonly PLATFORM_NAME="Endurance"
+readonly PLATFORM_TAGLINE="Mission Control for Every Application"
 readonly PLATFORM_VERSION="1.0.0"
 readonly PLATFORM_ENVIRONMENT="kind"
 readonly PLATFORM_CUSTOMER="SuperHeroes"

@@ -1,4 +1,4 @@
-# LaunchPad registry entry — do not edit by hand; use `launchpad onboard`
+# Endurance registry entry — do not edit by hand; use `endurance onboard`
 ---
 name: superheros
 namespace: superheros
@@ -8,7 +8,7 @@ mesh:
     enabled: true
 notify:
     enabled: true
-    webhook: launchpad-sink
+    webhook: endurance-sink
 services:
     - name: frontend
       image: docker.io/dockergc00/superheros-frontend

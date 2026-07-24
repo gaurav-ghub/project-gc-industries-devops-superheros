@@ -20,8 +20,8 @@ func tempRepo(t *testing.T) string {
 	root := t.TempDir()
 	for _, args := range [][]string{
 		{"init", "--initial-branch=main"},
-		{"config", "user.email", "test@launchpad.invalid"},
-		{"config", "user.name", "LaunchPad Test"},
+		{"config", "user.email", "test@endurance.invalid"},
+		{"config", "user.name", "Endurance Test"},
 		{"config", "commit.gpgsign", "false"},
 	} {
 		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
@@ -47,13 +47,13 @@ func TestCommitCommitsTheGeneratedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Commit(root, written, "launchpad: onboard superheros"); err != nil {
+	if err := Commit(root, written, "endurance: onboard superheros"); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if status := git(t, root, "status", "--porcelain"); status != "" {
 		t.Errorf("working tree should be clean after --commit, got:\n%s", status)
 	}
-	if subject := git(t, root, "log", "-1", "--pretty=%s"); subject != "launchpad: onboard superheros" {
+	if subject := git(t, root, "log", "-1", "--pretty=%s"); subject != "endurance: onboard superheros" {
 		t.Errorf("commit subject = %q", subject)
 	}
 	files := git(t, root, "show", "--name-only", "--pretty=format:")
@@ -76,7 +76,7 @@ func TestCommitStagesNothingItWasNotGiven(t *testing.T) {
 	if err := os.WriteFile(stray, []byte("work in progress\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Commit(root, written, "launchpad: onboard superheros"); err != nil {
+	if err := Commit(root, written, "endurance: onboard superheros"); err != nil {
 		t.Fatal(err)
 	}
 	if files := git(t, root, "show", "--name-only", "--pretty=format:"); strings.Contains(files, "notes.txt") {
@@ -93,7 +93,7 @@ func TestReleaseCommitCarriesOnlyTheTwoChangedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Commit(root, written, "launchpad: onboard superheros"); err != nil {
+	if err := Commit(root, written, "endurance: onboard superheros"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,7 +101,7 @@ func TestReleaseCommitCarriesOnlyTheTwoChangedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Commit(root, bump.Written, "launchpad: release superheros/frontend v2-abc1234"); err != nil {
+	if err := Commit(root, bump.Written, "endurance: release superheros/frontend v2-abc1234"); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	files := strings.Fields(git(t, root, "show", "--name-only", "--pretty=format:"))
@@ -119,7 +119,7 @@ func TestReleaseCommitCarriesOnlyTheTwoChangedFiles(t *testing.T) {
 }
 
 func TestCommitNeverPushes(t *testing.T) {
-	// The rule since Phase 1: LaunchPad writes and commits; a human pushes. A
+	// The rule since Phase 1: Endurance writes and commits; a human pushes. A
 	// repo with no remote proves it by construction — a push would error, and
 	// Commit returns nil.
 	root := tempRepo(t)
@@ -127,7 +127,7 @@ func TestCommitNeverPushes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Commit(root, written, "launchpad: onboard superheros"); err != nil {
+	if err := Commit(root, written, "endurance: onboard superheros"); err != nil {
 		t.Fatalf("Commit must succeed without a remote: %v", err)
 	}
 	if remotes := git(t, root, "remote"); remotes != "" {
@@ -143,14 +143,14 @@ func TestCommitReportsGitFailureRatherThanSwallowingIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Commit(root, written, "launchpad: onboard superheros"); err == nil {
+	if err := Commit(root, written, "endurance: onboard superheros"); err == nil {
 		t.Fatal("expected an error when root is not a git repository")
 	}
 }
 
 func TestCommitRefusesAnEmptyFileList(t *testing.T) {
 	root := tempRepo(t)
-	if err := Commit(root, nil, "launchpad: nothing"); err == nil {
+	if err := Commit(root, nil, "endurance: nothing"); err == nil {
 		t.Fatal("expected an error committing no files")
 	}
 }
@@ -164,10 +164,10 @@ func TestHeadSubjectReportsTheCommitThatWasMade(t *testing.T) {
 	if s := HeadSubject(root); s != "" {
 		t.Errorf("a repo with no commits has no HEAD subject, got %q", s)
 	}
-	if err := Commit(root, written, "launchpad: onboard superheros"); err != nil {
+	if err := Commit(root, written, "endurance: onboard superheros"); err != nil {
 		t.Fatal(err)
 	}
-	if s := HeadSubject(root); !strings.Contains(s, "launchpad: onboard superheros") {
+	if s := HeadSubject(root); !strings.Contains(s, "endurance: onboard superheros") {
 		t.Errorf("HeadSubject = %q", s)
 	}
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-# LaunchPad DevX Platform
+# Endurance DevX Platform
 # Color Definitions
 #
 

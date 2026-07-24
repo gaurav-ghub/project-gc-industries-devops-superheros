@@ -5,7 +5,7 @@
 #
 # Description:
 # Installs Kyverno, the admission-time policy engine of the
-# GC Industries Cloud Native Platform.
+# Endurance.
 #
 # Responsibilities:
 # - Install the Kyverno control plane
@@ -15,7 +15,7 @@
 # Philosophy:
 # The platform owns policy. Applications consume it.
 #
-# The `launchpad` CLI evaluates the same policies before a commit is made, so a
+# The `endurance` CLI evaluates the same policies before a commit is made, so a
 # developer learns about a violation while they can still fix it in one line.
 # Kyverno is the backstop for anything that reaches the cluster by another
 # route — kubectl apply, a hand-edited manifest, a chart the CLI never saw.

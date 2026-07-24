@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/spec"
 )
 
 func subscribedApp() spec.App {
 	return spec.App{
 		Name:      "superheros",
 		Namespace: "superheros",
-		Notify:    spec.Notify{Enabled: true, Webhook: "launchpad-sink"},
+		Notify:    spec.Notify{Enabled: true, Webhook: "endurance-sink"},
 	}
 }
 
@@ -144,8 +144,8 @@ func TestSendDeliversToAWebhookAsStructuredJSON(t *testing.T) {
 		t.Errorf("event lost fields in transit: %+v", got)
 	}
 	// A receiver must be able to tell intent from outcome without reading prose.
-	if got.Source != "launchpad-cli" {
-		t.Errorf("source = %q, want launchpad-cli", got.Source)
+	if got.Source != "endurance-cli" {
+		t.Errorf("source = %q, want endurance-cli", got.Source)
 	}
 	if got.Time == "" || got.Actor == "" {
 		t.Errorf("time and actor should always be stamped: %+v", got)
@@ -232,7 +232,7 @@ func TestSinksAreDrivenByTheEnvironmentOnly(t *testing.T) {
 }
 
 func TestActorIsOverridable(t *testing.T) {
-	t.Setenv("LAUNCHPAD_ACTOR", "ci-bot")
+	t.Setenv("ENDURANCE_ACTOR", "ci-bot")
 	if got := New(spec.StageOnboarded, subscribedApp()).Actor; got != "ci-bot" {
 		t.Errorf("actor = %q", got)
 	}

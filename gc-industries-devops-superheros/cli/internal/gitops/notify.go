@@ -3,20 +3,20 @@ package gitops
 import (
 	"sort"
 
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/spec"
 )
 
 // Subscription is one ArgoCD notification subscription, rendered into
 // application.yaml as a
 // `notifications.argoproj.io/subscribe.<trigger>.<service>` annotation.
 type Subscription struct {
-	Stage     spec.Stage // the LaunchPad stage this serves
+	Stage     spec.Stage // the Endurance stage this serves
 	Trigger   string     // the ArgoCD trigger that fires it
 	Service   string     // the ArgoCD notification service ("slack", or a webhook service name)
 	Recipient string     // channel for slack; empty for a webhook service
 }
 
-// stageTriggers maps LaunchPad's outcome stages onto ArgoCD's triggers.
+// stageTriggers maps Endurance's outcome stages onto ArgoCD's triggers.
 //
 // Only the outcome stages appear here, and that absence is the point: there is
 // no ArgoCD trigger for `onboarded` or `requested` because ArgoCD does not know

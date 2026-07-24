@@ -81,9 +81,9 @@ func matchMap(path string, pattern map[string]any, value any) (*mismatch, error)
 //
 // Kyverno's documented default is weaker — a pattern element need only match at
 // least one resource element — which means a policy like "containers must
-// declare resource limits" passes as soon as any one container does. LaunchPad
+// declare resource limits" passes as soon as any one container does. Endurance
 // deliberately takes the stricter reading: the gate exists to make a promise
-// about the whole workload. For LaunchPad-generated manifests the two readings
+// about the whole workload. For Endurance-generated manifests the two readings
 // coincide anyway, because charts/app renders exactly one container per pod.
 func matchList(path string, pattern []any, value any) (*mismatch, error) {
 	items, ok := value.([]any)

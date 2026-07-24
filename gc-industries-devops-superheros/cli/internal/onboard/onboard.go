@@ -1,4 +1,4 @@
-// Package onboard implements `launchpad onboard` — the interactive form that
+// Package onboard implements `endurance onboard` — the interactive form that
 // turns a developer's answers into an application spec and the GitOps files
 // ArgoCD needs. It never deploys; it writes files (and optionally commits).
 package onboard
@@ -10,12 +10,12 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
-	"github.com/gc-ghub/launchpad/internal/gitops"
-	"github.com/gc-ghub/launchpad/internal/notify"
-	"github.com/gc-ghub/launchpad/internal/policy"
-	"github.com/gc-ghub/launchpad/internal/render"
-	"github.com/gc-ghub/launchpad/internal/spec"
-	"github.com/gc-ghub/launchpad/internal/version"
+	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/notify"
+	"github.com/gc-ghub/endurance/internal/policy"
+	"github.com/gc-ghub/endurance/internal/render"
+	"github.com/gc-ghub/endurance/internal/spec"
+	"github.com/gc-ghub/endurance/internal/version"
 	"gopkg.in/yaml.v3"
 )
 
@@ -157,7 +157,7 @@ func finish(opts Options, app spec.App) error {
 	}
 
 	if opts.Commit {
-		if err := gitops.Commit(opts.Root, written, "launchpad: onboard "+app.Name); err != nil {
+		if err := gitops.Commit(opts.Root, written, "endurance: onboard "+app.Name); err != nil {
 			render.Warn("commit skipped: " + err.Error())
 		} else {
 			render.Success("staged and committed, not pushed — " + gitops.HeadSubject(opts.Root))
@@ -187,16 +187,16 @@ func finish(opts Options, app spec.App) error {
 	}
 	next := []string{
 		"git push the platform repo so ArgoCD can see it",
-		"launchpad status " + app.Name + "   to watch it come up",
+		"endurance status " + app.Name + "   to watch it come up",
 	}
 	if canaries := app.CanaryServices(); len(canaries) > 0 {
 		rows = append(rows, [2]string{"Canary", render.Value(strings.Join(canaries, ", "))})
-		next = append(next, "launchpad canary status "+app.Name+"   to see the traffic split")
+		next = append(next, "endurance canary status "+app.Name+"   to see the traffic split")
 	}
 	if app.Notify.Enabled {
 		rows = append(rows, [2]string{"Notify", render.Value(strings.Join(app.Notify.Recipients(), "  ")) +
 			"  (" + strings.Join(app.Notify.StageNames(), ", ") + ")"})
-		next = append(next, "launchpad notify status "+app.Name+"   to see who hears about it and when")
+		next = append(next, "endurance notify status "+app.Name+"   to see who hears about it and when")
 	}
 	if app.Mesh.Enabled {
 		rows = append(rows, [2]string{"Mesh", "istio — namespace gets istio-injection=enabled"})

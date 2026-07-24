@@ -4,14 +4,14 @@
 // The policy gate has to answer "would the cluster accept what I am about to
 // commit?" before anything is written, so it needs the manifests in hand. Two
 // ways to get them were available: shell out to `helm template`, or build them
-// in Go. Shelling out would break LaunchPad's single-self-contained-binary
+// in Go. Shelling out would break Endurance's single-self-contained-binary
 // promise and make the gate unavailable wherever helm is not installed, so the
 // projection lives here — and TestProjectionMatchesHelmTemplate pins it against
 // the real chart on any machine that does have helm, so the two cannot drift.
 package manifest
 
 import (
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/spec"
 )
 
 // Resource is one rendered Kubernetes object, in the generic form the policy
@@ -70,7 +70,7 @@ func labels(app spec.App, s spec.Service, version string) map[string]any {
 	m := map[string]any{
 		"app.kubernetes.io/name":       s.Name,
 		"app.kubernetes.io/part-of":    app.Name,
-		"app.kubernetes.io/managed-by": "launchpad",
+		"app.kubernetes.io/managed-by": "endurance",
 	}
 	if version != "" {
 		m["app.kubernetes.io/version"] = version

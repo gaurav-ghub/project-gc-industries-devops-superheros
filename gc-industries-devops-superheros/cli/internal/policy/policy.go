@@ -1,11 +1,11 @@
-// Package policy is LaunchPad's deploy-time Kyverno gate.
+// Package policy is Endurance's deploy-time Kyverno gate.
 //
 // The cluster already enforces the ClusterPolicies in infra/kyverno_policy/ at
 // admission time. That is the right place for the final word, but it is the
 // wrong place to *learn* you got it wrong: by then the bad values are committed,
 // pushed, and ArgoCD is reporting a sync error that names a webhook rather than
 // the line the developer typed. This package reads those same policy files and
-// evaluates them against the manifests LaunchPad is about to write, so a
+// evaluates them against the manifests Endurance is about to write, so a
 // violation is refused before it can reach a commit.
 //
 // The policies are read from disk rather than reimplemented, so the gate and the
@@ -20,8 +20,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gc-ghub/launchpad/internal/manifest"
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/manifest"
+	"github.com/gc-ghub/endurance/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 

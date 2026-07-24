@@ -111,7 +111,7 @@ install_argocd_chart() {
 
     else
 
-        log_info "No values.slack.yaml — Slack is off; the in-cluster launchpad-sink webhook is still configured."
+        log_info "No values.slack.yaml — Slack is off; the in-cluster endurance-sink webhook is still configured."
 
         log_info "See values.slack.yaml.example to enable Slack."
 

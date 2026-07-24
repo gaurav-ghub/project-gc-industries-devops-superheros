@@ -5,7 +5,7 @@
 #
 # Description:
 # Public entry point for the AI module of the
-# GC Industries Cloud Native Platform.
+# Endurance.
 #
 # Purpose:
 # Deploys the Superhero AI Alertmanager — the enrichment hop that sits between

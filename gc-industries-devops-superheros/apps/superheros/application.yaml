@@ -4,15 +4,15 @@ metadata:
   name: superheros
   namespace: argocd
   # Who hears about this application, and when. The stages a developer can ask
-  # for are LaunchPad's; the triggers below are ArgoCD's — because ArgoCD is the
+  # for are Endurance's; the triggers below are ArgoCD's — because ArgoCD is the
   # only thing that deploys, and so the only thing that knows whether a deploy
   # worked. The onboarded and requested stages have no trigger here on purpose:
   # those are sent by the CLI, which knows intent and nothing more.
   annotations:
-    notifications.argoproj.io/subscribe.on-deployed.launchpad-sink: ""
-    notifications.argoproj.io/subscribe.on-health-degraded.launchpad-sink: ""
-    notifications.argoproj.io/subscribe.on-sync-failed.launchpad-sink: ""
-    notifications.argoproj.io/subscribe.on-sync-running.launchpad-sink: ""
+    notifications.argoproj.io/subscribe.on-deployed.endurance-sink: ""
+    notifications.argoproj.io/subscribe.on-health-degraded.endurance-sink: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.endurance-sink: ""
+    notifications.argoproj.io/subscribe.on-sync-running.endurance-sink: ""
 spec:
   project: default
   sources:

@@ -3,7 +3,7 @@
 #
 # Description:
 # Public entry point for the Security module of the
-# GC Industries Cloud Native Platform.
+# Endurance.
 #
 # Purpose:
 # This script installs all policy and admission-control capabilities

@@ -1,6 +1,6 @@
 # Monitoring Platform
 
-This module provisions the complete observability stack for the GC Industries Cloud Native Platform.
+This module provisions the complete observability stack for the Endurance.
 
 ## Components
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Commit stages exactly the files LaunchPad wrote and commits them with msg.
+// Commit stages exactly the files Endurance wrote and commits them with msg.
 //
 // It never pushes, and it never stages anything it was not handed. `git add -A`
 // would be one character shorter and would sweep a developer's unrelated work

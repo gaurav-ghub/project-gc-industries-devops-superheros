@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gc-ghub/launchpad/internal/gitops"
-	"github.com/gc-ghub/launchpad/internal/render"
-	"github.com/gc-ghub/launchpad/internal/spec"
-	"github.com/gc-ghub/launchpad/internal/version"
+	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/render"
+	"github.com/gc-ghub/endurance/internal/spec"
+	"github.com/gc-ghub/endurance/internal/version"
 )
 
 // Status prints who hears about an application and when.
@@ -26,7 +26,7 @@ func Status(root, appName string) error {
 
 	if !app.Notify.Enabled {
 		render.Info("notifications are off — add a notify block to specs/" + app.Name + ".yaml and re-run onboard")
-		render.Detail("notify:\n    enabled: true\n    webhook: launchpad-sink")
+		render.Detail("notify:\n    enabled: true\n    webhook: endurance-sink")
 		return nil
 	}
 
@@ -84,7 +84,7 @@ func TestSend(root, appName string) error {
 	}
 
 	e := New(spec.StageTest, app)
-	e.Detail = "sent by `launchpad notify test`"
+	e.Detail = "sent by `endurance notify test`"
 	render.Info(e.Text())
 	Send(app, e)
 

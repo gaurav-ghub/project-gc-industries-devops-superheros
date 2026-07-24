@@ -3,7 +3,7 @@
 #
 # Description:
 # Public entry point for the GitOps module of the
-# GC Industries Cloud Native Platform.
+# Endurance.
 #
 # Purpose:
 # This script installs all GitOps capabilities required

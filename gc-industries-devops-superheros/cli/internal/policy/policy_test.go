@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gc-ghub/launchpad/internal/manifest"
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/manifest"
+	"github.com/gc-ghub/endurance/internal/spec"
 )
 
 // realPolicyDir is the repo's own ClusterPolicy directory — the same files the

@@ -5,7 +5,7 @@
 #
 # Description:
 # Public entry point for the Monitoring module of the
-# GC Industries Cloud Native Platform.
+# Endurance.
 #
 # Purpose:
 # This script installs all monitoring capabilities required

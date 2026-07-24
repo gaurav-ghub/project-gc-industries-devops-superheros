@@ -5,7 +5,7 @@
 #
 # Description:
 # Verification and summary output for the AI module of the
-# GC Industries Cloud Native Platform.
+# Endurance.
 #
 # Author: Gaurav Chaurasia
 ###############################################################################

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,7 +29,7 @@ var weightLine = regexp.MustCompile(`^(\s*weight:\s*)(\d+)(\s*(?:#.*)?)$`)
 // saying 10/10/80 while specs/superheros.yaml still said 40/30/30, so the next
 // `onboard --from` would have silently reset the split — the same failure class
 // that reverted the namespace fix in Phase 1. The rule "generated files are
-// regenerated" is what makes LaunchPad predictable, and it is only safe while
+// regenerated" is what makes Endurance predictable, and it is only safe while
 // the input file is actually the truth. A weight is the one field that drifts,
 // because a weight is operational state a human moves at 2am rather than a
 // stated intention.

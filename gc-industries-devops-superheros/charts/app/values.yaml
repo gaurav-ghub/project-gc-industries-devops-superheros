@@ -1,5 +1,5 @@
-# Default values for the LaunchPad generic app chart.
-# LaunchPad generates a per-application values file (apps/<name>/values.yaml)
+# Default values for the Endurance generic app chart.
+# Endurance generates a per-application values file (apps/<name>/values.yaml)
 # that overrides these. The shape:
 #
 # app:
@@ -24,13 +24,13 @@ app:
 # them all), which only earns its keep when something needs mesh-level routing.
 # A service that declares `versions` needs exactly that — the weights are
 # enforced by Envoy, and with mesh off they are inert while still looking
-# configured. LaunchPad warns when it sees that combination.
+# configured. Endurance warns when it sees that combination.
 mesh:
   enabled: false
 
 # Fallbacks for a service that declares no resources/security of its own.
 #
-# LaunchPad-generated values files always spell both blocks out per service, so
+# Endurance-generated values files always spell both blocks out per service, so
 # these are only reached by a hand-written values file. They are kept in sync
 # with the constants in cli/internal/spec — a service must never render without
 # them, because the require-resources and enforce-security-context policies in

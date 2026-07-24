@@ -1,4 +1,4 @@
-// Package render is LaunchPad's terminal look — a restrained, Claude/Vercel-style
+// Package render is Endurance's terminal look — a restrained, Claude/Vercel-style
 // visual system: a product banner, semantic icons, a small color palette, section
 // rules, a step stream, and an end-of-run dashboard. Every user-facing line in the
 // CLI goes through here so the whole tool feels like one product.
@@ -32,17 +32,33 @@ var (
 	faintStyle = lipgloss.NewStyle().Foreground(faint)
 )
 
-// Banner prints the product logo box.
+// Tagline is the product's one-line positioning, shown under the wordmark.
+const Tagline = "Mission Control for Every Application"
+
+// Banner prints the Endurance product banner: the ring-ship logo (a nod to the
+// Interstellar Endurance — a ring of modules around a central hub) beside the
+// wordmark and tagline. Boxless, Claude-style — art plus a couple of quiet lines.
 func Banner(version string) {
-	title := brandStyle.Render("▸ LaunchPad") + mutedStyle.Render("  Internal Developer Platform")
-	sub := faintStyle.Render("deploy any app to Kubernetes · " + version)
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(brand).
-		Padding(0, 2).
-		Render(title + "\n" + sub)
-	fmt.Println(box)
+	ringMid := accentStyle.Render(" ·      ") + brandStyle.Render("✦") + accentStyle.Render("      · ")
+	ring := lipgloss.JoinVertical(lipgloss.Left,
+		accentStyle.Render("    · ─ ◦ ─ ·"),
+		accentStyle.Render("  ◦           ◦"),
+		ringMid,
+		accentStyle.Render("  ◦           ◦"),
+		accentStyle.Render("    · ─ ◦ ─ ·"),
+	)
+	word := lipgloss.JoinVertical(lipgloss.Left,
+		"",
+		brandStyle.Render("E N D U R A N C E"),
+		accentStyle.Render(Tagline),
+		faintStyle.Render("deploy any app to kind · "+version),
+		"",
+	)
+	fmt.Println("\n" + lipgloss.JoinHorizontal(lipgloss.Center, ring, "    ", word) + "\n")
 }
+
+// accentStyle is the cyan heading/active style, shared by the banner and rules.
+var accentStyle = headStyle
 
 // Section prints a titled horizontal rule.
 func Section(title string) {

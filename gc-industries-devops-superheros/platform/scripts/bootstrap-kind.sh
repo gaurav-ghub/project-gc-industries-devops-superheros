@@ -4,7 +4,7 @@
 # File: bootstrap-kind.sh
 #
 # Description:
-# Bootstraps the complete GC Industries Cloud Native Platform
+# Bootstraps the complete Endurance
 # on a local Kind Kubernetes cluster.
 #
 # Responsibilities:

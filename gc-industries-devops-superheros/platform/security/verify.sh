@@ -5,7 +5,7 @@
 #
 # Description:
 # Verification and summary output for the Security module of the
-# GC Industries Cloud Native Platform.
+# Endurance.
 #
 # Author: Gaurav Chaurasia
 ###############################################################################
@@ -38,7 +38,7 @@ display_security_summary() {
 
     echo
 
-    echo "1. Before commit  — launchpad onboard/release evaluate the same"
+    echo "1. Before commit  — endurance onboard/release evaluate the same"
     echo "                    ClusterPolicies against the manifests they are"
     echo "                    about to write, and refuse to write on a"
     echo "                    violation. Nothing bad reaches git."
@@ -65,12 +65,12 @@ display_security_summary() {
     echo
 
     echo "Check an application before committing"
-    echo "./cli/launchpad.exe policy check superheros --root ."
+    echo "./cli/endurance.exe policy check superheros --root ."
 
     echo
 
     echo "List what the platform enforces"
-    echo "./cli/launchpad.exe policy list --root ."
+    echo "./cli/endurance.exe policy list --root ."
 
     echo
 

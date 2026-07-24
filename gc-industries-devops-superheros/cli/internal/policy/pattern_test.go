@@ -89,7 +89,7 @@ func TestMatchReportsMissingKeys(t *testing.T) {
 
 // Every element of a list must satisfy the pattern. Kyverno's documented default
 // is "at least one", which would let a single compliant sidecar vouch for a
-// non-compliant app container; LaunchPad takes the stricter reading on purpose.
+// non-compliant app container; Endurance takes the stricter reading on purpose.
 func TestMatchListRequiresEveryElement(t *testing.T) {
 	pattern := []any{map[string]any{"image": "!*:latest"}}
 	value := []any{

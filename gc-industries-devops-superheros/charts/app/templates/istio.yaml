@@ -7,7 +7,7 @@ The VirtualService binds to the service's short name and no gateway, which makes
 it a *mesh-internal* rule: it is enforced by the sidecar of whatever pod is
 calling, for every caller in the namespace, without the platform needing to know
 a single thing about the application's URL structure. That is what keeps canary
-application-agnostic; the pre-LaunchPad superhero chart had to hardcode
+application-agnostic; the pre-Endurance superhero chart had to hardcode
 `/api/catalog` into a gateway route to achieve the same thing.
 
 The weights live here and only here. Nothing about a weight change touches a

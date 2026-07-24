@@ -1,4 +1,4 @@
-// Package notify is the CLI half of LaunchPad's developer notifications.
+// Package notify is the CLI half of Endurance's developer notifications.
 //
 // There are two halves, and the split is deliberate. This one sends *intent*:
 // the moment a developer's command rewrote the GitOps files, addressed to
@@ -11,7 +11,7 @@
 // Everything here is best-effort by construction. A notification is a courtesy,
 // and a courtesy that can fail a release is worse than no courtesy at all: the
 // files are already written and the git history is already correct, so a Slack
-// outage must not turn `launchpad release` into a non-zero exit that a
+// outage must not turn `endurance release` into a non-zero exit that a
 // developer then "fixes" by running it again.
 package notify
 
@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gc-ghub/launchpad/internal/render"
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/render"
+	"github.com/gc-ghub/endurance/internal/spec"
 )
 
 // Environment variables that configure the CLI's own delivery. They are
@@ -35,8 +35,8 @@ import (
 // embedded secrets — an incoming-webhook URL *is* the credential, and a
 // credential does not belong in a committed application spec.
 const (
-	EnvSlackWebhook = "LAUNCHPAD_SLACK_WEBHOOK"
-	EnvWebhook      = "LAUNCHPAD_NOTIFY_WEBHOOK"
+	EnvSlackWebhook = "ENDURANCE_SLACK_WEBHOOK"
+	EnvWebhook      = "ENDURANCE_NOTIFY_WEBHOOK"
 )
 
 // timeout bounds a notification attempt. Short on purpose: the developer is
@@ -57,7 +57,7 @@ type Event struct {
 }
 
 // New builds an event, stamping the actor and the time so callers cannot forget
-// to. Source is always "launchpad-cli": a receiver must be able to tell a
+// to. Source is always "endurance-cli": a receiver must be able to tell a
 // message that claims intent from one that reports outcome without reading the
 // prose.
 func New(stage spec.Stage, app spec.App) Event {
@@ -66,7 +66,7 @@ func New(stage spec.Stage, app spec.App) Event {
 		App:       app.Name,
 		Namespace: app.Namespace,
 		Actor:     actor(),
-		Source:    "launchpad-cli",
+		Source:    "endurance-cli",
 		Time:      time.Now().UTC().Format(time.RFC3339),
 	}
 }
@@ -102,7 +102,7 @@ func (e Event) Text() string {
 		headline += " — " + e.Detail
 	}
 
-	line := fmt.Sprintf("LaunchPad · %s (by %s)", headline, e.Actor)
+	line := fmt.Sprintf("Endurance · %s (by %s)", headline, e.Actor)
 	switch e.Stage {
 	case spec.StageOnboarded, spec.StageRequested:
 		line += "\nGitOps files written. Nothing is deployed yet — ArgoCD reports the outcome once this is pushed."
@@ -202,7 +202,7 @@ func deliver(s Sink, e Event) error {
 // actor is who ran the command — the "by" in every message. Best effort: a
 // missing username is not worth failing over, and "unknown" is honest.
 func actor() string {
-	if v := strings.TrimSpace(os.Getenv("LAUNCHPAD_ACTOR")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("ENDURANCE_ACTOR")); v != "" {
 		return v
 	}
 	if u, err := user.Current(); err == nil && u.Username != "" {

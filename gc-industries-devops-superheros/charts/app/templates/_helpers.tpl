@@ -1,6 +1,6 @@
 {{/*
 Common labels applied to every object rendered for a service.
-"part-of" ties all of an application's services together so `launchpad status`
+"part-of" ties all of an application's services together so `endurance status`
 can select them with app.kubernetes.io/part-of=<app>.
 
 "version" is set only for a canary service's per-version workloads. It is the
@@ -11,7 +11,7 @@ every version, and Istio is what decides which subset a request reaches.
 {{- define "app.labels" -}}
 app.kubernetes.io/name: {{ .svc.name }}
 app.kubernetes.io/part-of: {{ .root.Values.app.name }}
-app.kubernetes.io/managed-by: launchpad
+app.kubernetes.io/managed-by: endurance
 {{- if .version }}
 app.kubernetes.io/version: {{ .version }}
 {{- end }}

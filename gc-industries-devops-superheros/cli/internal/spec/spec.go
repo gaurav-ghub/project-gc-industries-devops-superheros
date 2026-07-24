@@ -1,8 +1,8 @@
-// Package spec defines the LaunchPad application model.
+// Package spec defines the Endurance application model.
 //
 // The core idea of the platform: an *application* is a set of one or more
 // *services*, each with its own container image. A single-image app is simply
-// the N=1 case of a multi-service app. This is what makes LaunchPad
+// the N=1 case of a multi-service app. This is what makes Endurance
 // application-agnostic — the platform never needs to know a service's language.
 package spec
 
@@ -62,7 +62,7 @@ type Resources struct {
 	Limits   ResourceList `yaml:"limits"`
 }
 
-// Security is LaunchPad's single per-service security block. The chart splits it
+// Security is Endurance's single per-service security block. The chart splits it
 // into the two places Kubernetes wants it: the pod-level securityContext
 // (runAsNonRoot / runAsUser / runAsGroup / fsGroup) and the container-level one
 // (allowPrivilegeEscalation / capabilities).
@@ -99,7 +99,7 @@ type EnvVar struct {
 //
 // Weight is the *only* place a version's share of traffic is recorded. It is
 // deliberately not passed to the container as an environment variable: baking
-// the weight into the pod spec — as the pre-LaunchPad superhero chart did —
+// the weight into the pod spec — as the pre-Endurance superhero chart did —
 // means every weight change restarts every pod, which defeats the entire point
 // of shifting traffic at the mesh layer.
 type Version struct {
@@ -172,7 +172,7 @@ func (s Service) EnvFor(v Version) []EnvVar {
 // Rollout is the list of variants to render for a service. A service without
 // versions yields exactly one unnamed variant carrying the service's own tag
 // and replicas, which is what keeps the non-canary render byte-identical to
-// what LaunchPad produced before canary existed.
+// what Endurance produced before canary existed.
 func (s Service) Rollout() []Version {
 	if len(s.Versions) > 0 {
 		return s.Versions

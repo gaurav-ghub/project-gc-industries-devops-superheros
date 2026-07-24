@@ -1,6 +1,6 @@
 // Package gitops turns an application spec into the files ArgoCD reconciles.
 //
-// LaunchPad never deploys directly — it writes three files into the platform
+// Endurance never deploys directly — it writes three files into the platform
 // repo and lets ArgoCD do the rest:
 //
 //	apps/<name>/app.yaml         registry entry (human source of truth)
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/gc-ghub/launchpad/internal/spec"
+	"github.com/gc-ghub/endurance/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,7 +38,7 @@ metadata:
   namespace: argocd
 {{- if .Subscriptions }}
   # Who hears about this application, and when. The stages a developer can ask
-  # for are LaunchPad's; the triggers below are ArgoCD's — because ArgoCD is the
+  # for are Endurance's; the triggers below are ArgoCD's — because ArgoCD is the
   # only thing that deploys, and so the only thing that knows whether a deploy
   # worked. The onboarded and requested stages have no trigger here on purpose:
   # those are sent by the CLI, which knows intent and nothing more.
@@ -88,7 +88,7 @@ func AppDir(root, name string) string {
 // root).
 //
 // This matters because ArgoCD resolves source paths from the repository root,
-// not from wherever LaunchPad was run. When the platform tree is nested inside
+// not from wherever Endurance was run. When the platform tree is nested inside
 // the repo — as in project-gc-industries-devops-superheros/gc-industries-devops-superheros —
 // the chart lives at "<prefix>charts/app", and emitting a bare "charts/app"
 // makes ArgoCD fail with "app path does not exist".
@@ -194,8 +194,8 @@ func writeAppFiles(dir string, app *spec.App) ([]string, error) {
 		name string
 		data []byte
 	}{
-		{"app.yaml", withHeader("LaunchPad registry entry — do not edit by hand; use `launchpad onboard`", reg)},
-		{"values.yaml", withHeader("Values for charts/app — rendered by LaunchPad", vals)},
+		{"app.yaml", withHeader("Endurance registry entry — do not edit by hand; use `endurance onboard`", reg)},
+		{"values.yaml", withHeader("Values for charts/app — rendered by Endurance", vals)},
 	}
 	var written []string
 	for _, f := range files {
@@ -244,7 +244,7 @@ func PlanServiceTag(root, appName, svcName, versionName, tag string) (Bump, erro
 	}
 	app, err := Load(root, appName)
 	if err != nil {
-		return b, fmt.Errorf("no registered app %q — run `launchpad list` to see what is registered", appName)
+		return b, fmt.Errorf("no registered app %q — run `endurance list` to see what is registered", appName)
 	}
 	i := app.FindService(svcName)
 	if i < 0 {
@@ -325,7 +325,7 @@ func PlanWeights(root, appName, svcName string, weights map[string]int) (WeightC
 	var w WeightChange
 	app, err := Load(root, appName)
 	if err != nil {
-		return w, fmt.Errorf("no registered app %q — run `launchpad list` to see what is registered", appName)
+		return w, fmt.Errorf("no registered app %q — run `endurance list` to see what is registered", appName)
 	}
 	i := app.FindService(svcName)
 	if i < 0 {

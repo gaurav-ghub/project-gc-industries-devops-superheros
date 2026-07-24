@@ -25,7 +25,7 @@ var slackChannel = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,79}$`)
 //	                                   thing that talks to the cluster and
 //	                                   therefore the only thing that knows.
 //
-// LaunchPad refuses to blur the line. A CLI that printed "deployed ✅" after
+// Endurance refuses to blur the line. A CLI that printed "deployed ✅" after
 // writing a YAML file would be reporting a fact it cannot possibly have, and
 // that specific lie is the entire failure mode of hand-rolled deploy
 // notifications — the message arrives, the deploy fails, and nobody finds out
@@ -39,7 +39,7 @@ const (
 	StageHealthy   Stage = "healthy"
 	StageFailed    Stage = "failed"
 
-	// StageTest is `launchpad notify test`. It is never subscribable — it
+	// StageTest is `endurance notify test`. It is never subscribable — it
 	// exists so the delivery path can be exercised without waiting for a real
 	// deploy, and it deliberately bypasses the event filter so that "did my
 	// webhook work?" and "am I subscribed to this stage?" stay separate
@@ -68,7 +68,7 @@ type Notify struct {
 	Slack string `yaml:"slack,omitempty"`
 
 	// Webhook is the name of a webhook notification service the platform has
-	// configured (e.g. `launchpad-sink`, or `slack-incoming` for a Slack
+	// configured (e.g. `endurance-sink`, or `slack-incoming` for a Slack
 	// incoming-webhook URL, which needs no Slack app at all). Named rather than
 	// a URL on purpose: a URL in a committed application spec is a credential
 	// in git.
@@ -154,7 +154,7 @@ func validateNotify(n Notify) error {
 	seen := map[Stage]bool{}
 	for _, s := range n.Stages {
 		if s == StageTest {
-			return fmt.Errorf("notify.stages: %q is not subscribable — it is what `launchpad notify test` sends", s)
+			return fmt.Errorf("notify.stages: %q is not subscribable — it is what `endurance notify test` sends", s)
 		}
 		known := false
 		for _, k := range AllStages {
