@@ -1,0 +1,24 @@
+###############################################################################
+# The in-cluster address Alertmanager posts alerts to. The platform's
+# Alertmanager route (platform/monitoring/values/base/prometheus-values.yaml)
+# points its ai-webhook receiver at:
+#   http://superhero-ai-alertmanager.monitoring.svc.cluster.local:8000/alerts
+###############################################################################
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: superhero-ai-alertmanager
+  namespace: monitoring
+  labels:
+    app: superhero-ai-alertmanager
+    app.kubernetes.io/name: superhero-ai-alertmanager
+    app.kubernetes.io/part-of: gc-industries-platform
+    app.kubernetes.io/component: alert-enrichment
+spec:
+  selector:
+    app: superhero-ai-alertmanager
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

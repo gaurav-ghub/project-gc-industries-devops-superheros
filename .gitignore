@@ -105,3 +105,8 @@ test-utils.sh
 # An incoming-webhook URL or a Slack bot token is not a pointer to a secret, it
 # IS the secret. The committed example file next to it shows the shape.
 gc-industries-devops-superheros/platform/gitops/argocd/values.slack.yaml
+
+# LaunchPad — AI alert-enrichment credentials (Phase 6).
+# The OpenAI key and Slack webhook for the enricher. Same rule: the real Secret
+# manifest is untracked; secret.example.yaml (committed) shows the shape.
+gc-industries-devops-superheros/platform/ai/secret.yaml

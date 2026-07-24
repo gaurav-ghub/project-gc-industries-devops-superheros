@@ -8,7 +8,12 @@ metadata:
   name: pod-restart-alerts
   namespace: superheros
   labels:
-    release: monitoring
+    # kube-prometheus-stack's default ruleSelector matches release=<helm release
+    # name>, and the platform installs the stack as the "prometheus" release
+    # (platform/monitoring/prometheus/install.sh). This label was "monitoring"
+    # — a stale name from before that refactor — so the rule was never selected
+    # and the alert never loaded into Prometheus. Fixed to "prometheus".
+    release: prometheus
 
 spec:
   groups:

@@ -1,0 +1,86 @@
+###############################################################################
+# Superhero AI Alertmanager — the enrichment hop between Alertmanager and Slack.
+#
+# Runs in the `monitoring` namespace, alongside Alertmanager, because it is
+# platform observability plumbing — not a customer application. The seven
+# Kyverno ClusterPolicies are scoped to the `superheros` namespace and do not
+# govern this pod, but it is written to the same platform-mandated posture they
+# enforce (non-root UID 10001, no privilege escalation, all capabilities
+# dropped, resources declared, a pinned image tag from a named registry) so it
+# would pass unchanged if those selectors were ever widened.
+#
+# Credentials come from the `superhero-ai-secret` Secret (see secret.example.yaml
+# and install.sh) — never from this file.
+###############################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superhero-ai-alertmanager
+  namespace: monitoring
+  labels:
+    app: superhero-ai-alertmanager
+    app.kubernetes.io/name: superhero-ai-alertmanager
+    app.kubernetes.io/part-of: gc-industries-platform
+    app.kubernetes.io/component: alert-enrichment
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: superhero-ai-alertmanager
+  template:
+    metadata:
+      labels:
+        app: superhero-ai-alertmanager
+        app.kubernetes.io/name: superhero-ai-alertmanager
+        app.kubernetes.io/part-of: gc-industries-platform
+        app.kubernetes.io/component: alert-enrichment
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: superhero-ai-alertmanager
+          # Tag is pinned and mirrored in versions.yaml; install.sh asserts they
+          # agree. Rebuild + push a new tag from superhero-ai-alertmanager/ when
+          # app.py changes — the platform consumes images, it never builds them.
+          image: docker.io/dockergc00/superhero-ai-alertmanager:v3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            # optional so the pod still starts (and healthchecks green) before
+            # the credentials exist — the app degrades to un-enriched forwarding
+            # rather than crash-looping on a missing Secret.
+            - secretRef:
+                name: superhero-ai-secret
+                optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

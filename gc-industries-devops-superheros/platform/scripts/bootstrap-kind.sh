@@ -26,6 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/utils.sh"
 source "${PROJECT_ROOT}/platform/networking/install.sh"
 source "${PROJECT_ROOT}/platform/monitoring/install.sh"
+source "${PROJECT_ROOT}/platform/ai/install.sh"
 source "${PROJECT_ROOT}/platform/gitops/install.sh"
 source "${PROJECT_ROOT}/platform/security/install.sh"
 
@@ -134,6 +135,11 @@ main() {
     install_networking
 
     install_monitoring
+
+    # AI alert enrichment runs after monitoring: it deploys into the monitoring
+    # namespace next to Alertmanager, and the Alertmanager route that feeds it
+    # ships in the monitoring module's values.
+    install_ai
 
     install_gitops
 

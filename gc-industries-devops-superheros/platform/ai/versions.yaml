@@ -1,0 +1,10 @@
+# The image this module deploys. install.sh reads `tag` and asserts that
+# manifests/deployment.yaml references the same one — a version file that is
+# only read as documentation drifts from what is actually installed (the lesson
+# from platform/networking/versions.yaml in Phase 4/5).
+#
+# The image is BUILT in the application repo (superhero-ai-alertmanager/) and
+# pushed to Docker Hub. The platform only consumes it.
+ai_alertmanager:
+  image: docker.io/dockergc00/superhero-ai-alertmanager
+  tag: "v3"

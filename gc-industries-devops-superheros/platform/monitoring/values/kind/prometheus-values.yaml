@@ -9,3 +9,37 @@ prometheus:
 alertmanager:
   alertmanagerSpec:
     replicas: 1
+
+  # Platform alert routing lives in the MAIN Alertmanager config so it is always
+  # consumed. NOTE: the active installer (platform/monitoring/prometheus/
+  # install.sh) passes ONLY this env values file, never values/base — so the
+  # route has to be here, not in base. An AlertmanagerConfig CR
+  # (infra/monitoring/alertmanager-config.yaml) would only be merged if the stack
+  # were told to select it (alertmanagerConfigSelector), which it is not; that CR
+  # was inert. The main config avoids that whole "looks wired, isn't" class.
+  #
+  # Alertmanager holds NO Slack or model credential. It only forwards matching
+  # alerts to the in-cluster AI enricher (platform/ai), which enriches via OpenAI
+  # and posts to Slack. Everything else (including the always-on Watchdog) goes to
+  # the null receiver.
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'namespace']
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 1h
+      receiver: 'null'
+      routes:
+        - receiver: 'ai-webhook'
+          matchers:
+            - 'severity="warning"'
+            - 'team="platform"'
+          continue: false
+    receivers:
+      - name: 'null'
+      - name: 'ai-webhook'
+        webhook_configs:
+          - url: 'http://superhero-ai-alertmanager.monitoring.svc.cluster.local:8000/alerts'
+            send_resolved: true

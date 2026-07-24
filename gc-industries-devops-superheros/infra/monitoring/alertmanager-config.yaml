@@ -1,4 +1,12 @@
 # Alertmanager configuration for AI-powered alert routing
+#
+# SUPERSEDED (Phase 6). This AlertmanagerConfig CR was never actually consumed:
+# kube-prometheus-stack only merges an AlertmanagerConfig when the Alertmanager
+# is told to select it (spec.alertmanagerConfigSelector), which the platform
+# never set — so this route was inert. The platform now routes to the AI enricher
+# from the MAIN Alertmanager config in
+# platform/monitoring/values/kind/prometheus-values.yaml (always consumed).
+# Kept here for reference only; do not rely on it to route anything.
 
 apiVersion: monitoring.coreos.com/v1alpha1
 kind: AlertmanagerConfig
