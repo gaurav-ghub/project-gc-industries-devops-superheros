@@ -16,13 +16,13 @@ metadata:
 spec:
   project: default
   sources:
-    - repoURL: 
+    - repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
       targetRevision: HEAD
       path: gc-industries-devops-superheros/charts/app
       helm:
         valueFiles:
           - $values/gc-industries-devops-superheros/apps/superheros/values.yaml
-    - repoURL: 
+    - repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
       targetRevision: HEAD
       ref: values
   destination:
