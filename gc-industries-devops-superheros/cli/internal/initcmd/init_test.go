@@ -211,7 +211,7 @@ func TestNothingHappensBeforeTheConfirmation(t *testing.T) {
 
 	opts := base(root, s)
 	opts.Yes = false
-	opts.Confirm = func(string) (bool, error) { return false, nil }
+	opts.Confirm = func(string) (Decision, error) { return Cancel, nil }
 
 	if err := Run(opts); err != nil {
 		t.Fatalf("declining returned an error: %v", err)
@@ -549,7 +549,7 @@ func TestInitNeverPrintsACredentialItCaptured(t *testing.T) {
 	opts := base(root, s)
 	opts.Name = "" // the interactive path: the answers arrive from the form
 	opts.Yes = false
-	opts.Confirm = func(string) (bool, error) { return true, nil }
+	opts.Confirm = func(string) (Decision, error) { return Create, nil }
 	opts.Ask = func(a *Answers, d Answers) error {
 		*a = d
 		a.Name = "demo"
@@ -605,7 +605,7 @@ func TestTheCredentialsAreWrittenBeforeTheBootstrap(t *testing.T) {
 		return nil
 	}
 	opts.Yes = false
-	opts.Confirm = func(string) (bool, error) { return true, nil }
+	opts.Confirm = func(string) (Decision, error) { return Create, nil }
 	opts.Bootstrap = func(o platform.BootstrapOptions) error {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash("platform/ai/secret.yaml"))); err == nil {
 			order = append(order, "secret-already-there")
@@ -1095,7 +1095,7 @@ func TestGoingBackAndSayingSkipLeavesNoCredential(t *testing.T) {
 	opts := base(root, s)
 	opts.Name = ""
 	opts.Yes = false
-	opts.Confirm = func(string) (bool, error) { return true, nil }
+	opts.Confirm = func(string) (Decision, error) { return Create, nil }
 	// Typed a key, went back, chose Skip — which is what the form leaves behind.
 	opts.Ask = func(a *Answers, d Answers) error {
 		*a = d
@@ -1129,7 +1129,7 @@ func TestTheQuestionsAreOneForm(t *testing.T) {
 	opts := base(root, s)
 	opts.Name = ""
 	opts.Yes = false
-	opts.Confirm = func(string) (bool, error) { return true, nil }
+	opts.Confirm = func(string) (Decision, error) { return Create, nil }
 
 	asked := 0
 	opts.Ask = func(a *Answers, d Answers) error {
@@ -1147,5 +1147,151 @@ func TestTheQuestionsAreOneForm(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash("platform/ai/secret.yaml"))); err != nil {
 		t.Error("the key captured by the one form was not written")
+	}
+}
+
+// TestEditReopensTheQuestionsAndTheSecondAnswerWins.
+//
+// The confirmation screen is the first time the answers are visible together,
+// which makes it the first place a wrong one is obvious. Until v0.10.3 the only
+// responses were "create it" and "cancel", so noticing a typo cost every other
+// answer — and the user who found this had typed six.
+func TestEditReopensTheQuestionsAndTheSecondAnswerWins(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	s := &spy{}
+	opts := base(root, s)
+	opts.Name = ""
+	opts.Yes = false
+
+	// Read the plan, ask to edit, then accept the second one.
+	answered := 0
+	opts.Confirm = func(string) (Decision, error) {
+		answered++
+		if answered == 1 {
+			return Edit, nil
+		}
+		return Create, nil
+	}
+	asked := 0
+	opts.Ask = func(a *Answers, d Answers) error {
+		asked++
+		*a = d
+		if asked == 1 {
+			a.Name, a.Tag = "typo", "v1"
+			return nil
+		}
+		// The second pass arrives holding the first pass's answers, which is the
+		// whole point of Edit: change one line, keep the rest.
+		if d.Name != "typo" {
+			t.Errorf("the form reopened with name %q, want the answer it was given", d.Name)
+		}
+		a.Name = "demo"
+		return nil
+	}
+	if err := Run(opts); err != nil {
+		t.Fatal(err)
+	}
+
+	if asked != 2 {
+		t.Errorf("the questions were asked %d times, want 2", asked)
+	}
+	if len(s.onboarded) != 1 {
+		t.Fatalf("onboard ran %d times, want once", len(s.onboarded))
+	}
+	if !strings.Contains(s.onboarded[0].From, "demo") {
+		t.Errorf("onboarded from %q — the edited name did not win", s.onboarded[0].From)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash("specs/typo.yaml"))); err == nil {
+		t.Error("the abandoned first answer was written to disk")
+	}
+}
+
+// TestEditCanStillBeCancelled — the loop has to have an exit that creates
+// nothing, or Edit becomes a trap of its own.
+func TestEditCanStillBeCancelled(t *testing.T) {
+	root := sandbox(t)
+	buf := capture(t)
+
+	s := &spy{}
+	opts := base(root, s)
+	opts.Name = ""
+	opts.Yes = false
+
+	answered := 0
+	opts.Confirm = func(string) (Decision, error) {
+		answered++
+		if answered == 1 {
+			return Edit, nil
+		}
+		return Cancel, nil
+	}
+	opts.Ask = func(a *Answers, d Answers) error {
+		*a = d
+		a.Name = "demo"
+		return nil
+	}
+	if err := Run(opts); err != nil {
+		t.Fatal(err)
+	}
+	if s.bootstrapped != 0 {
+		t.Error("a cancelled run bootstrapped a cluster")
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash("specs/demo.yaml"))); err == nil {
+		t.Error("a cancelled run wrote a spec")
+	}
+	if got := buf.String(); !strings.Contains(got, "nothing was created") {
+		t.Errorf("a cancelled run did not say so:\n%s", got)
+	}
+}
+
+// TestAnEmptyCredentialTurnsItsCapabilityOff.
+//
+// The rule that lets ↑ work at all. huh will not leave a group backwards while a
+// field in it has a validation error, so a required-and-empty first field is a
+// prompt with no exit — which is exactly what the OpenAI key prompt was for a
+// user who answered Yes by accident. Neither secret is required now, and an
+// empty one means the capability was declined.
+func TestAnEmptyCredentialTurnsItsCapabilityOff(t *testing.T) {
+	cases := []struct {
+		name string
+		in   Answers
+		want Answers
+	}{
+		{
+			"said yes, gave nothing",
+			Answers{AI: true, Slack: true},
+			Answers{},
+		},
+		{
+			"whitespace is nothing",
+			Answers{AI: true, OpenAIKey: "   ", Slack: true, SlackHook: "\t"},
+			Answers{},
+		},
+		{
+			"went back and chose skip, key still in the hidden group",
+			Answers{AI: false, OpenAIKey: fakeKey, AISlackHook: fakeHook},
+			Answers{},
+		},
+		{
+			"a key given is a key kept",
+			Answers{AI: true, OpenAIKey: fakeKey},
+			Answers{AI: true, OpenAIKey: fakeKey},
+		},
+		{
+			"the AI webhook is optional and survives without turning anything off",
+			Answers{AI: true, OpenAIKey: fakeKey, AISlackHook: fakeHook},
+			Answers{AI: true, OpenAIKey: fakeKey, AISlackHook: fakeHook},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := c.in
+			settle(&got)
+			if got != c.want {
+				t.Errorf("settle(%+v)\n = %+v\nwant %+v", c.in, got, c.want)
+			}
+		})
 	}
 }

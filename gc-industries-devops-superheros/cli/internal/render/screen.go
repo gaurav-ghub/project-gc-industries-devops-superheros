@@ -48,11 +48,15 @@ type Hint struct {
 //   - Footer says the quiet part ("2 of 3 pods ready — ArgoCD is still
 //     syncing") rather than rounding it up.
 type Result struct {
-	Title  string
-	State  State       // the glyph beside the title; zero value is pending
-	Rows   [][2]string // Namespace / Cluster / Image / Replicas …
-	Pods   []Pod
-	URLs   []URL
+	Title string
+	State State       // the glyph beside the title; zero value is pending
+	Rows  [][2]string // Namespace / Cluster / Image / Replicas …
+	Pods  []Pod
+	URLs  []URL
+	// Logins are the platform's own two, printed under the addresses they open.
+	// Empty leaves the section out entirely — a caller that could not reach the
+	// cluster prints no block rather than a block full of apologies.
+	Logins []Credential
 	Hints  []Hint
 	Footer string
 }
@@ -77,6 +81,12 @@ func (r *Renderer) SuccessScreen(res Result) {
 	if len(res.URLs) > 0 {
 		b.WriteString("\n" + r.head.Render("URLs") + "\n")
 		for _, l := range r.urlLines(res.URLs) {
+			b.WriteString(l + "\n")
+		}
+	}
+	if len(res.Logins) > 0 {
+		b.WriteString("\n" + r.head.Render("Logins") + "\n")
+		for _, l := range r.credLines(res.Logins) {
 			b.WriteString(l + "\n")
 		}
 	}
@@ -132,29 +142,36 @@ type Credential struct {
 // two kubectl commands to log in is a developer the platform has failed.
 func (r *Renderer) CredentialBlock(title string, creds []Credential) {
 	r.Section(title)
-	if len(creds) == 0 {
-		return
+	for _, l := range r.credLines(creds) {
+		r.emit(l)
 	}
+}
+
+// credLines is the block's body, shared with the success screen so a login
+// reads the same whether it was asked for or handed over at the end of a run.
+func (r *Renderer) credLines(creds []Credential) []string {
 	w := 0
 	for _, c := range creds {
 		if len(c.Label) > w {
 			w = len(c.Label)
 		}
 	}
+	out := make([]string, 0, len(creds))
 	for _, c := range creds {
 		line := r.muted.Render(pad(c.Label, w)) + "  "
 		if c.Password == "" {
 			// Nothing was fetched. Say so where the password would have been,
 			// rather than printing an empty field that reads as a blank password.
-			r.emit(line + r.warn.Render(IconWarn) + " " + r.muted.Render(c.Note))
+			out = append(out, line+r.warn.Render(IconWarn)+" "+r.muted.Render(c.Note))
 			continue
 		}
 		line += r.Value(c.Username) + r.faint.Render(" / ") + r.Value(c.Password)
 		if c.Note != "" {
 			line += "  " + r.faint.Render(c.Note)
 		}
-		r.emit(line)
+		out = append(out, line)
 	}
+	return out
 }
 
 // Dashboard prints a compact boxed summary: title, key/value rows, and
@@ -175,28 +192,51 @@ func (r *Renderer) Dashboard(title string, rows [][2]string, next []string) {
 	r.emit("\n" + r.box(b.String()))
 }
 
-// box draws the closing border. It grows to fit its content but is never
-// narrower than a section rule — a stubby box beside a full-width rule reads as
-// a rendering bug, and the two must look like one system.
+// MaxBoxWidth is the widest a box may be drawn, in columns.
+//
+// It exists because a box is the one shape here that a terminal can destroy. A
+// rule or a step line that runs long simply wraps and reads fine; a box whose
+// border sits past the right edge has every one of its border characters
+// wrapped onto the next line, and what is left is not a wider box but a
+// shredded one — content and borders interleaved, which is what an absolute
+// Windows path inside an onboard summary looked like.
+//
+// 100 is wider than the 58-column rules, so a box may still grow to fit a long
+// image reference, and narrow enough to survive any terminal anyone runs this
+// in. Content past it is wrapped rather than allowed to set the width.
+const MaxBoxWidth = 100
+
+// box draws the closing border. It grows to fit its content, but never past
+// MaxBoxWidth and never narrower than a section rule — a stubby box beside a
+// full-width rule reads as a rendering bug, and the two must look like one
+// system.
 func (r *Renderer) box(s string) string {
 	const borderAndPadding = 6 // │ + 2 spaces, twice
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+
+	limit := MaxBoxWidth - borderAndPadding
 	inner := r.width - borderAndPadding
 	for _, line := range lines {
 		if w := lipgloss.Width(line); w > inner {
-			inner = w
+			inner = min(w, limit)
 		}
 	}
-	// Pad rather than setting a width on the style: lipgloss would wrap a long
-	// line to fit, and a wrapped image reference or URL is worse than a wide box.
-	for i, line := range lines {
-		lines[i] = pad(line, inner)
+
+	// Width both wraps and pads, and it counts columns rather than bytes, so a
+	// line carrying colour is measured by what it prints. Wrapping a long path
+	// is a real cost — the second half is no longer one click — but it is the
+	// smaller one: a wrapped line inside an intact box can still be read, and
+	// the box it broke out of could not.
+	fit := r.lip.NewStyle().Width(inner)
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, strings.Split(fit.Render(line), "\n")...)
 	}
 	return r.lip.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(cFaint).
 		Padding(0, 2).
-		Render(strings.Join(lines, "\n"))
+		Render(strings.Join(out, "\n"))
 }
 
 // kvLines aligns key/value rows on the value column.

@@ -54,19 +54,33 @@ func OriginURL(root string) string {
 // application that never wanted a URL renders exactly the manifests it always
 // did — which is what lets the Phase 1–9 regeneration proof keep working.
 type chartValues struct {
-	App      map[string]string `yaml:"app"`
-	Mesh     spec.Mesh         `yaml:"mesh,omitempty"`
-	Route    *spec.Route       `yaml:"route,omitempty"`
-	Services []spec.Service    `yaml:"services"`
+	App  map[string]string `yaml:"app"`
+	Mesh spec.Mesh         `yaml:"mesh,omitempty"`
+	// Exactly one of these is ever set, and which one mirrors the spec the
+	// author wrote. An application with one route keeps rendering the `route:`
+	// block it always did, byte for byte — which is what lets the Phase 1–9
+	// regeneration proof keep working across this change.
+	Route    *spec.Route    `yaml:"route,omitempty"`
+	Routes   []spec.Route   `yaml:"routes,omitempty"`
+	Services []spec.Service `yaml:"services"`
 }
 
 // routeValues returns the route to write into the values file, or nil.
 func routeValues(app spec.App) *spec.Route {
-	if !app.Route.Enabled {
+	if len(app.Routes) > 0 || !app.Route.Enabled {
 		return nil
 	}
 	r := app.Route
 	return &r
+}
+
+// routesValues returns the route list to write, or nil for an application that
+// declared a single route or none.
+func routesValues(app spec.App) []spec.Route {
+	if len(app.Routes) == 0 {
+		return nil
+	}
+	return app.RouteList()
 }
 
 // argoAppTmpl is a multi-source ArgoCD Application: source 1 is the generic
@@ -234,6 +248,7 @@ func writeAppFiles(dir string, app *spec.App) ([]string, error) {
 		App:      map[string]string{"name": app.Name},
 		Mesh:     app.Mesh,
 		Route:    routeValues(*app),
+		Routes:   routesValues(*app),
 		Services: app.Services,
 	})
 	if err != nil {

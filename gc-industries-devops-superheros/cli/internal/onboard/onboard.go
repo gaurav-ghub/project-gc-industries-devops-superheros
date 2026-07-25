@@ -212,8 +212,13 @@ func finish(opts Options, app spec.App) error {
 		// Applying the Application by hand is already the documented step, but
 		// it is easy to skip on a re-onboard, and the namespace label is the one
 		// change ArgoCD cannot make for itself until it has been told to.
-		next = append(next, "kubectl apply -f "+
-			gitops.AppDir(opts.Root, app.Name)+"/application.yaml   (the namespace label lives here)")
+		//
+		// Relative to the repo, not absolute: this is a command to type from the
+		// directory the user is already standing in, and an absolute Windows
+		// path is 90 columns of prefix they do not need. It was also what forced
+		// this box past the width of a terminal.
+		next = append(next, "kubectl apply -f apps/"+app.Name+
+			"/application.yaml   (the namespace label lives here)")
 	}
 	render.Dashboard("Application onboarded", rows, next)
 	return nil

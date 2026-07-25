@@ -28,11 +28,11 @@ owner: gc-industries
 mesh:
   enabled: true
 
-# The application's public address.
+# The application's public addresses.
 #
-# This is the whole of what superheros knows about being on the internet: a
-# path, and which of its five services answers it. Endurance renders it into a
-# VirtualService bound to the platform's ingress Gateway
+# This is the whole of what superheros knows about being on the internet: a set
+# of paths, and which of its five services answers each. Endurance renders them
+# into one VirtualService bound to the platform's ingress Gateway
 # (istio-system/endurance-gateway) and ArgoCD applies it — so the app is at
 # http://localhost:8080/ with nothing running in a terminal.
 #
@@ -41,18 +41,59 @@ mesh:
 # platform could serve exactly one application. An application asks; the
 # platform provides a door and does not look through it.
 #
-# Only frontend is exposed. catalog, orders, inventory and payment are called by
-# frontend inside the mesh and by nothing outside it — exposing them too would
-# be a security decision made by omission.
+# Three routes, because this application has more than one front door and
+# pretending it had one broke it.
+#
+# The browser is the caller here, not frontend. CatalogPage.jsx runs `fetch(
+# "/api/catalog")` in the user's browser, so that request arrives at the
+# platform's gateway exactly like the one for the page itself — it is not an
+# in-mesh call from frontend, and no amount of mesh configuration makes it one.
+# Before Endurance these four paths were rules in the app's own hand-written
+# gateway route. The first Endurance onboarding replaced them with the single
+# route the model then allowed, and the result deployed clean and healthy with
+# four of its five doors bricked up: the home page rendered, /catalog hung on
+# "Loading catalog…", and ArgoCD reported Synced throughout.
+#
+# So each path is written down, and nothing is published that is not written
+# here. These are the paths the browser actually requests, read out of the
+# frontend source rather than copied from the old chart:
+#
+#   CatalogPage.jsx   fetch("/api/catalog")   → catalog serves /api/catalog
+#   PaymentPage.jsx   fetch("/api/pay")       → payment serves /pay
+#
+# `rewrite` is what closes the second gap. payment was written to answer /pay
+# and is being called at /api/pay, and neither side is wrong — the prefix is a
+# fact about where it is mounted, so the platform strips it.
+#
+# inventory and orders are deliberately NOT routed, and that is not an oversight:
+#
+#   - nothing in the frontend calls inventory at all.
+#   - ordersApi.js calls http://localhost:8082/api/orders — a hardcoded host and
+#     port, not a path on this platform. kind publishes 8080 and nothing else,
+#     so that request fails in a browser no matter what is written here. It is
+#     an application bug, and routing /api/orders would not fix it; it would
+#     only publish a service nothing calls.
+#
+# The old hand-written chart routed all four, which is where the temptation to
+# copy them comes from. Two of those four routes never carried a request.
+#
+# Order does not matter in this file. Endurance sorts routes longest-path-first
+# before rendering them, because Istio takes the first prefix that matches and a
+# `/` rule above `/api/catalog` would silently swallow it. The generated
+# apps/superheros/values.yaml shows the order that will actually be used.
 #
 # `port` is omitted deliberately: it is read from the named service, so it
 # cannot fall out of step with it. `path: /` is the root of the platform's one
 # host; the platform's own dashboards keep /argocd, /kiali, /grafana,
 # /prometheus and /alertmanager, and Endurance refuses a route that claims one.
-route:
-  enabled: true
-  path: /
-  service: frontend
+routes:
+  - path: /
+    service: frontend
+  - path: /api/catalog
+    service: catalog
+  - path: /api/pay
+    service: payment
+    rewrite: /pay
 
 # Who hears about this application, and when.
 #

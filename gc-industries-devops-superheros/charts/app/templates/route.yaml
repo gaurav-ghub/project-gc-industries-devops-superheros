@@ -1,18 +1,25 @@
 {{/*
-The application's front-door route.
+The application's front-door routes.
 
-One VirtualService, bound to the platform's ingress Gateway, sending one path
-prefix to one of the application's services. Rendered only when the application
-asked for it — `route.enabled` in specs/<app>.yaml — because most services in a
-multi-service application are internal and exposing them all would be a security
-decision made by omission.
+One VirtualService, bound to the platform's ingress Gateway, sending path
+prefixes to the application's services. Rendered only when the application asked
+for it — `route.enabled` or a `routes:` list in specs/<app>.yaml — because most
+services in a multi-service application are internal and exposing them all would
+be a security decision made by omission.
 
 This is the ONLY place charts/app touches the outside world, and the shape is
-deliberate. Everything the platform knows about an application's URL is in the
-values file the application generated: the path, the service, the port, and the
-name of the Gateway to bind to. The chart hardcodes none of it. The
+deliberate. Everything the platform knows about an application's URLs is in the
+values file the application generated: the paths, the services, the ports, and
+the name of the Gateway to bind to. The chart hardcodes none of it. The
 pre-Endurance superhero chart had `/api/catalog` written into a gateway route,
-which is the reason the platform could only ever serve that one application.
+which is the reason the platform could only ever serve that one application —
+the fix for that was never "one route per application", it was "the application
+names its own", and v0.10.3 corrected the overshoot.
+
+Both spellings render here, and `routes:` is the general case: `route:` is the
+same loop over a list of one. The order is not this template's to decide — Istio
+takes the first matching prefix, and the list arrives sorted longest-path-first
+by spec.RouteList, so `/` cannot shadow `/api/catalog`.
 
 Note the contrast with istio.yaml next door, and that both are correct:
 
@@ -28,8 +35,15 @@ A route needs no sidecar and therefore no `mesh.enabled`: the ingress gateway
 does the routing, and it is part of the platform whether the application's pods
 are in the mesh or not.
 */}}
-{{- if .Values.route }}
+{{- $routes := list }}
+{{- if .Values.routes }}
+{{- $routes = .Values.routes }}
+{{- else if .Values.route }}
 {{- if .Values.route.enabled }}
+{{- $routes = list .Values.route }}
+{{- end }}
+{{- end }}
+{{- if $routes }}
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
@@ -42,15 +56,47 @@ spec:
   hosts:
     - "*"
   gateways:
-    - {{ .Values.route.gateway }}
+    - {{ (first $routes).gateway }}
   http:
+{{- range $r := $routes }}
+{{- $target := dict }}
+{{- range $svc := $.Values.services }}
+{{- if eq $svc.name $r.service }}
+{{- $target = $svc }}
+{{- end }}
+{{- end }}
     - match:
         - uri:
-            prefix: {{ .Values.route.path | quote }}
+            prefix: {{ $r.path | quote }}
+{{- if $r.rewrite }}
+      rewrite:
+        uri: {{ $r.rewrite | quote }}
+{{- end }}
       route:
+{{- if and $.Values.mesh.enabled $target.versions }}
+        {{- /*
+          A canary service that is also published needs its weights written
+          here, not just in istio.yaml. That file's VirtualService binds to no
+          gateway, which makes it mesh-internal: it is enforced by the sidecar
+          of a *calling pod*, and a browser is not one. Traffic arriving at the
+          ingress gateway would reach the Service and be spread evenly across
+          every version's pods, while `endurance canary status` went on
+          reporting 30/30/40 — the weights would be real for in-mesh callers
+          and fiction for the person looking at the page.
+        */}}
+{{- range $v := $target.versions }}
         - destination:
-            host: {{ .Values.route.service }}
+            host: {{ $r.service }}
+            subset: {{ $v.name }}
             port:
-              number: {{ .Values.route.port }}
+              number: {{ $r.port }}
+          weight: {{ $v.weight }}
+{{- end }}
+{{- else }}
+        - destination:
+            host: {{ $r.service }}
+            port:
+              number: {{ $r.port }}
+{{- end }}
 {{- end }}
 {{- end }}

@@ -85,8 +85,13 @@ func Lines(apps []spec.App) []string {
 		if len(a.CanaryServices()) > 0 {
 			tags = append(tags, "canary "+strings.Join(a.CanaryServices(), ","))
 		}
-		if a.Route.Enabled {
-			tags = append(tags, "route "+a.Route.Path)
+		// One line per application, so a five-route application is summarised by
+		// its front door and a count rather than by five paths nobody can read
+		// in a table.
+		if routes := a.RouteList(); len(routes) == 1 {
+			tags = append(tags, "route "+routes[0].Path)
+		} else if len(routes) > 1 {
+			tags = append(tags, plural(len(routes), "route"))
 		}
 		if a.Owner != "" {
 			tags = append(tags, a.Owner)

@@ -83,6 +83,13 @@ func Screen(opts Options) error {
 
 	pods, observed := observePods(kube, app)
 	res := Build(root, app, pods, observed)
+
+	// The logins are fetched here rather than in Build because Build is pure and
+	// they are a question for the cluster — the same cluster the pods above came
+	// from, asked with the same kubectl, so the screen is one answer and not two.
+	if kube != nil {
+		res.Logins = platform.SuccessLogins(kube)
+	}
 	render.SuccessScreen(res)
 	return nil
 }

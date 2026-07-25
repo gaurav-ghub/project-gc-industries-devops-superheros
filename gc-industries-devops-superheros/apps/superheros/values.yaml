@@ -4,12 +4,23 @@ app:
     name: superheros
 mesh:
     enabled: true
-route:
-    enabled: true
-    path: /
-    service: frontend
-    port: 80
-    gateway: istio-system/endurance-gateway
+routes:
+    - enabled: true
+      path: /api/catalog
+      service: catalog
+      port: 8081
+      gateway: istio-system/endurance-gateway
+    - enabled: true
+      path: /api/pay
+      service: payment
+      rewrite: /pay
+      port: 8084
+      gateway: istio-system/endurance-gateway
+    - enabled: true
+      path: /
+      service: frontend
+      port: 80
+      gateway: istio-system/endurance-gateway
 services:
     - name: frontend
       image: docker.io/dockergc00/superheros-frontend

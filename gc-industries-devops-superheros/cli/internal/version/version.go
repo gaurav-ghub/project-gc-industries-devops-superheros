@@ -55,4 +55,19 @@ package version
 //	        now asks everything as one form, with the two capability groups
 //	        hidden when declined, and internal/prompt owns the keys for every
 //	        form in the tool: ↑/shift+tab back, ↓/tab/enter next, esc cancels
-const Current = "v0.10.2"
+//	v0.10.3 what the second live `init` showed, in four parts. An application may
+//	        now declare several routes rather than one: the model allowed a
+//	        single path, so onboarding a five-service application generated the
+//	        one rule it could — `/` to the frontend — and the four API paths the
+//	        browser calls stopped existing, with ArgoCD reporting Synced
+//	        throughout. `routes:` is a list, sorted longest-path-first so `/`
+//	        cannot shadow what is under it, carrying an optional `rewrite`, and
+//	        weighted at the gateway when it names a canary service. The
+//	        confirmation screen gained Edit beside Create and Cancel, so noticing
+//	        a typo no longer costs every other answer. An empty credential now
+//	        means the capability was declined — a required-and-empty field is a
+//	        group huh will not let you leave backwards, which is what still held
+//	        a user at the key prompt after v0.10.2. And the end-of-run screen
+//	        hands over ArgoCD's and Grafana's passwords instead of only their
+//	        usernames, inside a box that no longer outgrows the terminal
+const Current = "v0.10.3"

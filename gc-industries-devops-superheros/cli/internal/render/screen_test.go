@@ -1,6 +1,7 @@
 package render
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -215,5 +216,91 @@ func TestBoxedScreensAreRectangular(t *testing.T) {
 					name, i, lipgloss.Width(l), w, buf.String())
 			}
 		}
+	}
+}
+
+// TestABoxNeverOutgrowsTheTerminal.
+//
+// A box is the one shape here a terminal can destroy. Everything else wraps and
+// still reads; a box whose border sits past the right edge has every border
+// character wrapped onto the following line, and what is left is not a wider box
+// but a shredded one — content and borders interleaved. That is what an absolute
+// Windows path in an onboard summary did on a real machine.
+func TestABoxNeverOutgrowsTheTerminal(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, WithColor(false))
+
+	long := "kubectl apply -f " + strings.Repeat("C:/a/very/long/windows/path", 8) + "/application.yaml"
+	r.Dashboard("Application onboarded", [][2]string{{"App", "superheros"}}, []string{long})
+
+	for _, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
+		if w := lipgloss.Width(line); w > MaxBoxWidth {
+			t.Errorf("line is %d columns, over the %d limit:\n%s", w, MaxBoxWidth, line)
+		}
+	}
+}
+
+// TestABoxStaysRectangular — the wrapped halves of a long line have to be padded
+// like every other line, or the right border staircases inward.
+func TestABoxStaysRectangular(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, WithColor(false))
+
+	r.Dashboard("Onboarded", [][2]string{{"App", "x"}},
+		[]string{strings.Repeat("word ", 60)})
+
+	var widths []int
+	for _, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		widths = append(widths, lipgloss.Width(line))
+	}
+	for i, w := range widths {
+		if w != widths[0] {
+			t.Errorf("line %d is %d columns, the first is %d — the box is not rectangular", i, w, widths[0])
+		}
+	}
+}
+
+// TestTheSuccessScreenHandsOverTheLogins.
+//
+// The screen used to end with "ArgoCD  http://localhost:8080/argocd  user admin"
+// and stop, so the first thing a developer did after a ten-minute install was
+// open a second terminal and paste a kubectl/base64 pipeline out of the docs.
+// The password was one API call away the whole time.
+func TestTheSuccessScreenHandsOverTheLogins(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, WithColor(false))
+
+	r.SuccessScreen(Result{
+		Title: "superheros is deployed and healthy",
+		State: StateReady,
+		URLs:  []URL{{Label: "ArgoCD", Addr: "http://localhost:8080/argocd"}},
+		Logins: []Credential{
+			{Label: "ArgoCD", Username: "admin", Password: "mQiZu-MdIGGbDycv"},
+			{Label: "Grafana", Username: "admin", Password: "prom-operator"},
+		},
+	})
+
+	got := buf.String()
+	for _, want := range []string{"Logins", "mQiZu-MdIGGbDycv", "prom-operator"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the screen does not carry %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestNoLoginsMeansNoSection — a caller that could not reach the cluster prints
+// no block rather than a block full of apologies, and a run recorded with
+// ENDURANCE_NO_CREDENTIALS set prints none either.
+func TestNoLoginsMeansNoSection(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, WithColor(false))
+
+	r.SuccessScreen(Result{Title: "superheros — cluster not reached", State: StateWarn})
+
+	if strings.Contains(buf.String(), "Logins") {
+		t.Errorf("an empty login list still drew a section:\n%s", buf.String())
 	}
 }

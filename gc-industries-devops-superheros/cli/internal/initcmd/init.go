@@ -135,7 +135,7 @@ type Options struct {
 	//
 	// Ask covers every question, credentials included — they are one form now,
 	// so there is one seam rather than a second one for the masked fields.
-	Confirm   func(question string) (bool, error)
+	Confirm   func(question string) (Decision, error)
 	Ask       func(a *Answers, defaults Answers) error
 	Kubectl   func(args ...string) (string, error)
 	Bootstrap func(platform.BootstrapOptions) error
@@ -145,6 +145,24 @@ type Options struct {
 	Now       func() time.Time
 	sleep     func(time.Duration)
 }
+
+// A Decision is what the user chose at the confirmation screen.
+//
+// Three answers, not two, because "no" was hiding two different intentions. A
+// user who reads the plan and finds one wrong line wants that line changed, not
+// the run abandoned — and until v0.10.3 the only way to change it was to cancel,
+// lose every other answer, and start again. Edit sends them back to the same
+// form with everything they typed still in it.
+type Decision int
+
+const (
+	// Create is the plan accepted as printed.
+	Create Decision = iota
+	// Edit reopens the questions with the current answers filled in.
+	Edit
+	// Cancel is esc, ctrl+c, or choosing Cancel. Nothing is created.
+	Cancel
+)
 
 // Answers is everything init needs from a human.
 //
@@ -208,35 +226,48 @@ func Run(opts Options) error {
 		return err
 	}
 
-	// An application that already has a spec file is onboarded from that file,
-	// not from the answers — writeSpec leaves it alone, because the input is the
-	// user's. So the plan has to describe the spec, or the screen consented to is
-	// not the run that happens: "1 service, nginx-unprivileged" above a re-run of
-	// a five-service application is exactly the kind of untruth this screen
-	// exists to prevent.
-	existing, reusing := existingSpec(root, answers.Name)
+	// Plan, read, amend, plan again. The loop is the point: the confirmation
+	// screen is the first time the answers are visible together, which makes it
+	// the first place a wrong one is obvious, so it has to be a place the user
+	// can act on that rather than only accept or abandon.
+	for {
+		// An application that already has a spec file is onboarded from that
+		// file, not from the answers — writeSpec leaves it alone, because the
+		// input is the user's. So the plan has to describe the spec, or the
+		// screen consented to is not the run that happens: "1 service,
+		// nginx-unprivileged" above a re-run of a five-service application is
+		// exactly the kind of untruth this screen exists to prevent.
+		existing, reusing := existingSpec(root, answers.Name)
 
-	plan := buildPlan(root, cluster, health, answers, needBootstrap, opts, existing, reusing)
-	printPlan(plan)
+		plan := buildPlan(root, cluster, health, answers, needBootstrap, opts, existing, reusing)
+		printPlan(plan)
 
-	if opts.DryRun {
-		render.Blank()
-		render.Info("--dry-run · nothing was created, written or committed")
-		render.Info("drop --dry-run to run it")
-		return nil
-	}
-	if !opts.Yes {
+		if opts.DryRun {
+			render.Blank()
+			render.Info("--dry-run · nothing was created, written or committed")
+			render.Info("drop --dry-run to run it")
+			return nil
+		}
+		if opts.Yes {
+			break
+		}
 		confirm := opts.Confirm
 		if confirm == nil {
 			confirm = askConfirm
 		}
-		ok, err := confirm("Go ahead?")
+		decision, err := confirm("Go ahead?")
 		if err != nil {
 			return err
 		}
-		if !ok {
+		if decision == Cancel {
 			render.Info("nothing was created — no cluster, no files, no commit")
 			return nil
+		}
+		if decision == Create {
+			break
+		}
+		if answers, err = reask(opts, root, answers); err != nil {
+			return err
 		}
 	}
 
@@ -452,6 +483,7 @@ func askApplication(a *Answers, d Answers) error {
 			"pass --name/--image/--tag/--port and --yes to run it without prompts")
 	}
 	render.Detail(prompt.Hint)
+	render.Detail("answer them all · the plan at the end has an Edit option, so nothing here is final")
 	render.Blank()
 
 	port := strconv.Itoa(d.Port)
@@ -489,8 +521,9 @@ func askApplication(a *Answers, d Answers) error {
 		),
 		huh.NewGroup(
 			features.SecretField("OpenAI API key",
-				"masked · written to platform/ai/secret.yaml, which is git-ignored, and never printed back",
-				true, &a.OpenAIKey),
+				"masked · leave it empty to skip enrichment · written to platform/ai/secret.yaml, "+
+					"which is git-ignored, and never printed back",
+				false, &a.OpenAIKey),
 			features.SecretField("Slack incoming-webhook URL for enriched alerts",
 				"masked · optional, leave empty to enrich into the logs only",
 				false, &a.AISlackHook).Validate(optionalWebhook),
@@ -504,25 +537,48 @@ func askApplication(a *Answers, d Answers) error {
 		),
 		huh.NewGroup(
 			features.SecretField("Slack incoming-webhook URL",
-				"masked · written to platform/gitops/argocd/values.slack.yaml, which is git-ignored",
-				true, &a.SlackHook).Validate(features.ValidateWebhook),
+				"masked · leave it empty to skip notifications · written to "+
+					"platform/gitops/argocd/values.slack.yaml, which is git-ignored",
+				false, &a.SlackHook).Validate(optionalWebhook),
 		).WithHideFunc(func() bool { return !a.Slack }),
 	)
 	if err := form.Run(); err != nil {
 		return err
 	}
 	a.Port, _ = strconv.Atoi(port)
-
-	// A hidden group's fields keep whatever they were given before it was
-	// hidden. Somebody who typed a key, went back with ↑ and chose Skip must
-	// end up with no key — the plan says "skipping", and the plan must be true.
-	if !a.AI {
-		a.OpenAIKey, a.AISlackHook = "", ""
-	}
-	if !a.Slack {
-		a.SlackHook = ""
-	}
+	settle(a)
 	return nil
+}
+
+// settle reconciles the capability switches with the credentials actually given.
+//
+// Split out of the form so it can be tested: a form cannot be driven without a
+// terminal, and both of the bugs the live runs found were in code no test could
+// reach. This is the part with a rule in it, so this is the part that gets one.
+//
+// # Why an empty credential turns its capability off
+//
+// Neither secret field is marked required, which is not laxness — it is the only
+// way out of the group. huh refuses to leave a group *backwards* while any field
+// in it has a validation error (Form.Update, prevGroupMsg), and moving off a
+// field runs its validator. A required first field that is still empty is
+// therefore a trap with no exit: ↑ blurs it, "required" appears at the bottom of
+// the screen, and the keypress is swallowed. A user who said Yes to AI
+// enrichment by accident was held at the key prompt by the very validator meant
+// to help them, with ctrl+c the only way out.
+//
+// So empty means skipped. The plan says so out loud, and `endurance enable ai`
+// is still there tomorrow.
+func settle(a *Answers) {
+	// A hidden group's fields keep whatever they were given before it was
+	// hidden. Somebody who typed a key, went back with ↑ and chose Skip must end
+	// up with no key — the plan says "skipping", and the plan must be true.
+	if !a.AI || strings.TrimSpace(a.OpenAIKey) == "" {
+		a.AI, a.OpenAIKey, a.AISlackHook = false, "", ""
+	}
+	if !a.Slack || strings.TrimSpace(a.SlackHook) == "" {
+		a.Slack, a.SlackHook = false, ""
+	}
 }
 
 // optionalWebhook validates a webhook that is allowed to be empty. The required
@@ -534,21 +590,48 @@ func optionalWebhook(s string) error {
 	return features.ValidateWebhook(s)
 }
 
-func askConfirm(question string) (bool, error) {
+// askConfirm is the last question, and the only one with three answers.
+//
+// A Select rather than a Confirm because there are three: huh's Confirm is a
+// two-way toggle and Edit is not the negative of Create. Select also brings its
+// own ↑/↓, which is why [prompt] leaves that field's keys exactly as huh ships
+// them.
+func askConfirm(question string) (Decision, error) {
 	if !render.Default().IsTTY() {
-		return false, fmt.Errorf("init needs confirmation and this is not a terminal — re-run with --yes")
+		return Cancel, fmt.Errorf("init needs confirmation and this is not a terminal — re-run with --yes")
 	}
-	answer := false
-	err := prompt.Run(huh.NewConfirm().
+	answer := Create
+	err := prompt.Run(huh.NewSelect[Decision]().
 		Title(question).
 		Description("everything above · the cluster is deletable with `endurance destroy`").
-		Affirmative("Create it").
-		Negative("Cancel").
+		Options(
+			huh.NewOption("Create it", Create),
+			huh.NewOption("Edit answers", Edit),
+			huh.NewOption("Cancel", Cancel),
+		).
 		Value(&answer))
 	if prompt.Cancelled(err) {
-		return false, nil // esc at the confirmation is Cancel, not a crash
+		return Cancel, nil // esc at the confirmation is Cancel, not a crash
 	}
 	return answer, err
+}
+
+// reask reopens the questions with the current answers in them.
+//
+// The answers are passed as the defaults as well as the values, so every field
+// arrives holding what the user last said rather than what init would have
+// guessed — the point of Edit is to change one line without retyping the other
+// six.
+func reask(opts Options, root string, a Answers) (Answers, error) {
+	ask := opts.Ask
+	if ask == nil {
+		ask = askApplication
+	}
+	edited := a
+	if err := ask(&edited, a); err != nil {
+		return a, err
+	}
+	return finalise(root, edited)
 }
 
 // --- the confirmation screen ---

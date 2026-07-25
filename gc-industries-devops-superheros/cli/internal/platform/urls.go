@@ -250,6 +250,34 @@ func secretValue(kube kubectlFunc, ns, name, key string) (value string, absent b
 	return string(dec), false, nil
 }
 
+// SuccessLogins are the platform's logins for the end-of-run screen, or nil.
+//
+// Nil means "print no Logins section": either the operator suppressed the block
+// for a recording, or nothing came back — and a success screen listing two
+// apologies where two passwords should be is worse than a screen that does not
+// mention them, because `endurance urls` says the same thing properly.
+//
+// The last live run is the reason this exists. The screen handed over
+// http://localhost:8080/argocd and "user admin" and stopped there, so the first
+// thing a developer did after a ten-minute install was open another terminal and
+// paste a kubectl/base64 pipeline out of the docs. The password was one API call
+// away the whole time, on a single-user cluster that `endurance destroy` deletes.
+// The parameter is the bare function type rather than the package's named one:
+// callers outside this package have their own name for the same signature, and
+// Go will not convert between two named types implicitly.
+func SuccessLogins(kube func(args ...string) (string, error)) []render.Credential {
+	if kube == nil || credentialsSuppressed() {
+		return nil
+	}
+	creds := FetchCredentials(kube)
+	for _, c := range creds {
+		if c.Password != "" {
+			return creds
+		}
+	}
+	return nil
+}
+
 // printCredentials draws the block, or explains why it is not drawing it.
 //
 // One function, three callers (urls, bootstrap, and the preview), because three

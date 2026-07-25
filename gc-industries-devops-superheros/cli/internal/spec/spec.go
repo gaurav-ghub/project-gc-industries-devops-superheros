@@ -9,6 +9,7 @@ package spec
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -269,21 +270,39 @@ func (a *App) ApplyDefaults() {
 // moves. Reading it from the service is why `route.port` is almost never set by
 // hand.
 func (a *App) applyRouteDefaults() {
+	if len(a.Routes) > 0 {
+		a.Routes = a.RouteList() // sorted once, here, so the file records the order
+		for i := range a.Routes {
+			// An entry in a list is published by being in the list. Setting the
+			// flag rather than teaching the chart about two shapes keeps
+			// route.yaml a single loop.
+			a.Routes[i].Enabled = true
+			a.fillRoute(&a.Routes[i])
+		}
+		a.Route = Route{}
+		return
+	}
 	if !a.Route.Enabled {
 		// A disabled route keeps no fields at all, so a file that turned one
 		// off does not carry the fossil of the one it used to have.
 		a.Route = Route{}
 		return
 	}
-	if a.Route.Gateway == "" {
-		a.Route.Gateway = DefaultGateway
+	a.fillRoute(&a.Route)
+}
+
+// fillRoute completes one route: the platform's Gateway, the root path, and the
+// port of the service it names.
+func (a *App) fillRoute(r *Route) {
+	if r.Gateway == "" {
+		r.Gateway = DefaultGateway
 	}
-	if a.Route.Path == "" {
-		a.Route.Path = DefaultRoutePath
+	if r.Path == "" {
+		r.Path = DefaultRoutePath
 	}
-	if a.Route.Port == 0 {
-		if i := a.FindService(a.Route.Service); i >= 0 {
-			a.Route.Port = a.Services[i].Port
+	if r.Port == 0 {
+		if i := a.FindService(r.Service); i >= 0 {
+			r.Port = a.Services[i].Port
 		}
 	}
 }
@@ -329,12 +348,37 @@ const DefaultRoutePath = "/"
 //
 // Most services in a multi-service application are internal — catalog, orders
 // and payment are called by the frontend and by nothing outside the cluster.
-// Exposing all of them would be a security decision made by omission. One
-// route, naming one service, is the whole surface.
+// Exposing all of them would be a security decision made by omission. Every
+// route is written down by name, and nothing is published that was not.
+//
+// # One route, or several
+//
+// Until v0.10.3 an application could have exactly one, and that was wrong for a
+// reason worth recording. The superhero application it was modelled on serves a
+// browser SPA at `/` and four JSON APIs at `/api/catalog`, `/api/orders`,
+// `/api/inventory` and `/api/payment`; before Endurance those five lived in the
+// application's own hand-written gateway route. Onboarding it through Endurance
+// generated the one rule the model allowed — `/` to the frontend — and the four
+// APIs stopped existing. The frontend loaded, the catalog page hung, and
+// nothing in the platform said why, because from the platform's side a
+// perfectly valid VirtualService had been created exactly as asked.
+//
+// So an application declares a list, in App.Routes. The single App.Route stays
+// for the applications that have one and the `init` flow that writes them, and
+// the two are mutually exclusive — see [App.RouteList].
 type Route struct {
+	// Enabled is the single-route form's on switch. Inside a Routes list it is
+	// meaningless — an entry is there or it is not — and ApplyDefaults sets it
+	// so the two forms render through one code path in the chart.
 	Enabled bool   `yaml:"enabled"`
 	Path    string `yaml:"path,omitempty"`
 	Service string `yaml:"service,omitempty"`
+	// Rewrite replaces the matched prefix before the request is forwarded, for
+	// the common case of a service that was written without knowing what it
+	// would be mounted under. superheros' payment service serves POST /pay and
+	// its browser calls POST /api/pay; without this the platform's only options
+	// are to change the service, change the caller, or route nothing.
+	Rewrite string `yaml:"rewrite,omitempty"`
 	// Port is the Service port traffic is sent to. Left empty it is filled in
 	// from the named service, which is what anyone would mean.
 	Port int `yaml:"port,omitempty"`
@@ -352,8 +396,39 @@ type App struct {
 	Owner      string    `yaml:"owner"`
 	Mesh       Mesh      `yaml:"mesh,omitempty"`
 	Route      Route     `yaml:"route,omitempty"`
+	Routes     []Route   `yaml:"routes,omitempty"`
 	Notify     Notify    `yaml:"notify,omitempty"`
 	Services   []Service `yaml:"services"`
+}
+
+// RouteList is every route this application publishes, most specific first.
+//
+// One accessor for both spellings, so nothing downstream has to ask which form
+// the author used. `route:` is the same thing as a `routes:` list of one, and
+// Validate refuses a file that writes both — an application with two answers to
+// "where do I answer" is a file nobody can review.
+//
+// # The order is ours, and it matters
+//
+// Istio evaluates a VirtualService's http rules top to bottom and takes the
+// first prefix that matches, so a `/` rule written above `/api/catalog` silently
+// swallows it — the API returns the SPA's index.html, and the browser reports a
+// JSON parse error somewhere far away from the cause. Authors write routes in
+// the order they think of them, which is never that order, so the list is sorted
+// here: longest path first, and ties left in the order they were written. The
+// sorted list is what gets written into the generated values file, so the order
+// a reviewer reads is the order Istio will use.
+func (a App) RouteList() []Route {
+	var out []Route
+	if len(a.Routes) > 0 {
+		out = append(out, a.Routes...)
+	} else if a.Route.Enabled {
+		out = append(out, a.Route)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return len(out[i].Path) > len(out[j].Path)
+	})
+	return out
 }
 
 // URL is the address this application answers on, given the platform's base
@@ -363,10 +438,14 @@ type App struct {
 // published on is a fact about the cluster (kind-config.yaml), and the spec
 // package must not grow an opinion about it.
 func (a App) URL(base string) string {
-	if !a.Route.Enabled {
+	routes := a.RouteList()
+	if len(routes) == 0 {
 		return ""
 	}
-	path := a.Route.Path
+	// The front door is the least specific route: for an application serving a
+	// browser at `/` and four APIs beneath it, "the address" is the one a person
+	// can open. RouteList sorts longest-first, so that is the last of them.
+	path := routes[len(routes)-1].Path
 	if path == "" || path == DefaultRoutePath {
 		return base + "/"
 	}
@@ -520,7 +599,56 @@ func (a App) Validate() error {
 // request — so the check has to happen before the file is written, not when
 // somebody opens a browser.
 func (a App) validateRoute() error {
-	r := a.Route
+	if len(a.Routes) > 0 {
+		if a.Route.Enabled || a.Route.Service != "" || a.Route.Path != "" {
+			return fmt.Errorf("app %q declares both `route:` and `routes:` — "+
+				"they are the same thing and only one can be the answer; "+
+				"move the single route into the list", a.Name)
+		}
+		seen := make(map[string]bool, len(a.Routes))
+		for _, r := range a.Routes {
+			path := r.Path
+			if path == "" {
+				path = DefaultRoutePath
+			}
+			if seen[path] {
+				// Istio takes the first and ignores the second, so the second
+				// service never sees a request and nothing anywhere says so.
+				return fmt.Errorf("app %q routes %q twice — one path answers from one service", a.Name, path)
+			}
+			seen[path] = true
+			// One VirtualService carries all of an application's rules, and a
+			// VirtualService binds to one set of gateways. Two entries naming
+			// different ones cannot both be honoured, and picking one silently
+			// would publish a path on a gateway its author did not name.
+			if r.Gateway != "" && r.Gateway != a.Routes[0].Gateway {
+				return fmt.Errorf("app %q routes %q through gateway %q and %q through %q — "+
+					"an application's routes share one gateway",
+					a.Name, path, r.Gateway, orRoot(a.Routes[0].Path), a.Routes[0].Gateway)
+			}
+			// Being in the list is what publishes an entry, and Validate must
+			// give the same answer whether or not ApplyDefaults has run.
+			r.Enabled = true
+			if err := a.validateOneRoute(r); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return a.validateOneRoute(a.Route)
+}
+
+// orRoot names a path for an error message, including the one nobody wrote down.
+func orRoot(path string) string {
+	if path == "" {
+		return DefaultRoutePath
+	}
+	return path
+}
+
+// validateOneRoute checks a single route, whether it came from `route:` or from
+// one entry of `routes:`.
+func (a App) validateOneRoute(r Route) error {
 	if !r.Enabled {
 		// A disabled route with fields set is a route somebody meant to turn
 		// on. Saying so beats deploying an application with no address and no
@@ -551,6 +679,9 @@ func (a App) validateRoute() error {
 			return fmt.Errorf("route path %q is reserved for the platform's own dashboards "+
 				"(%s) — pick another path", r.Path, strings.Join(ReservedPaths, ", "))
 		}
+	}
+	if r.Rewrite != "" && !strings.HasPrefix(r.Rewrite, "/") {
+		return fmt.Errorf("route rewrite %q must start with '/' — it is the path the service will see", r.Rewrite)
 	}
 	if r.Port < 0 || r.Port > 65535 {
 		return fmt.Errorf("route port %d out of range", r.Port)

@@ -186,3 +186,73 @@ func TestOriginURLRejectsAPathArgoCDCannotClone(t *testing.T) {
 		t.Errorf("OriginURL on a directory with no repo = %q, want %q", got, "")
 	}
 }
+
+// TestTheValuesCarryEveryRouteInOrder.
+//
+// The generated values file is what a reviewer reads and what Helm renders, so
+// the order in it has to be the order Istio will use. Istio takes the first
+// matching prefix; `/` above `/api/catalog` swallows it, and the symptom is an
+// API that answers with the SPA's index.html.
+func TestTheValuesCarryEveryRouteInOrder(t *testing.T) {
+	root := t.TempDir()
+	app := sampleApp()
+	app.Routes = []spec.Route{
+		{Path: "/", Service: "frontend"},
+		{Path: "/api/catalog", Service: "catalog"},
+	}
+	app.ApplyDefaults()
+
+	if _, err := Generate(root, app, "https://example.com/platform.git", ""); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	var got struct {
+		Route  *spec.Route  `yaml:"route"`
+		Routes []spec.Route `yaml:"routes"`
+	}
+	data, err := os.ReadFile(filepath.Join(root, "apps", "superheros", "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Route != nil {
+		t.Error("a multi-routed app also rendered a single `route:` block — the chart would see two answers")
+	}
+	if len(got.Routes) != 2 {
+		t.Fatalf("got %d routes in the values, want 2", len(got.Routes))
+	}
+	if got.Routes[0].Path != "/api/catalog" || got.Routes[1].Path != "/" {
+		t.Errorf("routes rendered as %q then %q, want the root last",
+			got.Routes[0].Path, got.Routes[1].Path)
+	}
+	if got.Routes[0].Port != 8081 {
+		t.Errorf("the catalog route lost its port: %d", got.Routes[0].Port)
+	}
+}
+
+// TestASingleRouteStillRendersTheOldBlock — every application onboarded before
+// v0.10.3 has to regenerate byte for byte, or the regeneration proof that shows
+// a generated tree was not hand-edited stops meaning anything.
+func TestASingleRouteStillRendersTheOldBlock(t *testing.T) {
+	root := t.TempDir()
+	app := sampleApp()
+	app.Route = spec.Route{Enabled: true, Path: "/", Service: "frontend"}
+	app.ApplyDefaults()
+
+	if _, err := Generate(root, app, "https://example.com/platform.git", ""); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "apps", "superheros", "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "route:") {
+		t.Error("a single-route app no longer renders a `route:` block")
+	}
+	if strings.Contains(string(data), "routes:") {
+		t.Error("a single-route app grew a `routes:` list — its generated file changed shape")
+	}
+}
