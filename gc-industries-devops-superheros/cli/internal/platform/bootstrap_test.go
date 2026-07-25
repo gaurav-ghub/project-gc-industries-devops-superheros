@@ -30,7 +30,7 @@ func TestBootstrapRunsEveryModuleInOrder(t *testing.T) {
 	f := &fakeRun{}
 
 	if err := Bootstrap(BootstrapOptions{
-		Root: root, SkipPreflight: true, run: f.run,
+		Root: root, SkipPreflight: true, run: f.run, probeURL: allAnswer,
 	}); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestBootstrapRunsEveryModuleInOrder(t *testing.T) {
 	got := buf.String()
 	// The counter is the difference between a tool that feels finished and one
 	// that feels stuck, so assert it is actually drawn.
-	for _, want := range []string{"[1/6]", "[6/6]", "✓ Bootstrapping the platform — 6 steps in"} {
+	for _, want := range []string{"[1/7]", "[7/7]", "✓ Bootstrapping the platform — 7 steps in"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
@@ -58,6 +58,16 @@ func TestBootstrapRunsEveryModuleInOrder(t *testing.T) {
 	}
 }
 
+// allAnswer is the network, scripted: every address replies 200.
+//
+// Bootstrap probes its own URLs before claiming they work, and a unit test has
+// no cluster — without this the suite would spend its retry budget failing to
+// reach localhost and then assert on the wrong branch.
+func allAnswer(string) (int, error) { return 200, nil }
+
+// noneAnswer is the other half: nothing is listening.
+func noneAnswer(string) (int, error) { return 0, errors.New("connection refused") }
+
 // TestAccessDetailsComeOnceAtTheEnd.
 //
 // The modules used to each print their own URLs and admin passwords the moment
@@ -65,12 +75,16 @@ func TestBootstrapRunsEveryModuleInOrder(t *testing.T) {
 // prints them once, after the run, and **prints no credential at all**: the
 // command that fetches one is the same information with a shelf life, and it
 // does not end up in a screenshot.
+//
+// Since Phase 10 it also prints *addresses* rather than port-forward commands,
+// which is asserted here because the whole point of the access layer is that
+// there is nothing left to keep running in another terminal.
 func TestAccessDetailsComeOnceAtTheEnd(t *testing.T) {
 	root := repoRoot(t)
 	buf := capture(t)
 
 	if err := Bootstrap(BootstrapOptions{
-		Root: root, SkipPreflight: true, run: (&fakeRun{}).run,
+		Root: root, SkipPreflight: true, run: (&fakeRun{}).run, probeURL: allAnswer,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +112,51 @@ func TestAccessDetailsComeOnceAtTheEnd(t *testing.T) {
 	if !strings.Contains(got, "argocd-initial-admin-secret") {
 		t.Errorf("it does not say how to fetch the ArgoCD password:\n%s", got)
 	}
+
+	// Real addresses on the platform's one host, not four port-forwards.
+	base := BaseURL(root)
+	for _, want := range []string{base + "/argocd", base + "/kiali", base + "/grafana"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the access block does not print %s:\n%s", want, got)
+		}
+	}
+	// The verdict line says the words "no port-forward", so match on the command
+	// rather than the noun: what must not survive is an instruction to run one.
+	if strings.Contains(got, "kubectl port-forward") {
+		t.Errorf("bootstrap still offers a port-forward — that is what the access layer replaced:\n%s", got)
+	}
+	// Probed, not asserted: a bootstrap that ends with an unverified list of
+	// URLs is a bootstrap that finds out it was wrong in front of an audience.
+	if !strings.Contains(got, "every address answered") {
+		t.Errorf("the access block did not report checking the addresses:\n%s", got)
+	}
+}
+
+// TestBootstrapIsHonestWhenNothingAnswers — the same run, with nothing
+// listening. The chain succeeded, so the modules keep their ✓; what must not
+// happen is the closing block claiming the platform is reachable.
+func TestBootstrapIsHonestWhenNothingAnswers(t *testing.T) {
+	root := repoRoot(t)
+	buf := capture(t)
+
+	if err := Bootstrap(BootstrapOptions{
+		Root: root, SkipPreflight: true, run: (&fakeRun{}).run, probeURL: noneAnswer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+
+	if strings.Contains(got, "every address answered") {
+		t.Errorf("bootstrap claimed the addresses answered when nothing was listening:\n%s", got)
+	}
+	if !strings.Contains(got, "none of the addresses answered") {
+		t.Errorf("bootstrap did not say the addresses are unreachable:\n%s", got)
+	}
+	// The way out has to be in the output, and for this failure it is a cluster
+	// recreate — kind fixes its port mappings at creation time.
+	if !strings.Contains(got, "endurance destroy") {
+		t.Errorf("the unreachable hint does not name the fix:\n%s", got)
+	}
 }
 
 // TestBootstrapStopsAtTheFirstFailure — the modules are ordered by dependency,
@@ -110,7 +169,7 @@ func TestBootstrapStopsAtTheFirstFailure(t *testing.T) {
 		Chain[1].Script: errors.New("exit status 1"),
 	}}
 
-	err := Bootstrap(BootstrapOptions{Root: root, SkipPreflight: true, run: f.run})
+	err := Bootstrap(BootstrapOptions{Root: root, SkipPreflight: true, run: f.run, probeURL: allAnswer})
 	if err == nil {
 		t.Fatal("a failed module did not fail the bootstrap")
 	}
@@ -123,7 +182,7 @@ func TestBootstrapStopsAtTheFirstFailure(t *testing.T) {
 		t.Errorf("the failing step is not marked:\n%s", got)
 	}
 	// One failure makes the run a failure, however many steps passed.
-	if !strings.Contains(got, "1 of 6 steps done, 1 failed") {
+	if !strings.Contains(got, "1 of 7 steps done, 1 failed") {
 		t.Errorf("the verdict does not report the failure honestly:\n%s", got)
 	}
 	if strings.Contains(got, "Platform ready") {
@@ -139,7 +198,7 @@ func TestBootstrapDryRunTouchesNothing(t *testing.T) {
 	f := &fakeRun{}
 
 	if err := Bootstrap(BootstrapOptions{
-		Root: root, SkipPreflight: true, DryRun: true, run: f.run,
+		Root: root, SkipPreflight: true, DryRun: true, run: f.run, probeURL: allAnswer,
 	}); err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
@@ -151,7 +210,7 @@ func TestBootstrapDryRunTouchesNothing(t *testing.T) {
 	if strings.Contains(got, "✓ Creating the kind cluster") {
 		t.Errorf("a dry run claimed a step succeeded:\n%s", got)
 	}
-	if !strings.Contains(got, "0 of 6 steps done, 6 skipped") {
+	if !strings.Contains(got, "0 of 7 steps done, 7 skipped") {
 		t.Errorf("the dry run verdict is not honest:\n%s", got)
 	}
 	for _, m := range Chain {
@@ -169,7 +228,7 @@ func TestBootstrapPreflightGatesTheRun(t *testing.T) {
 	buf := capture(t)
 	f := &fakeRun{}
 
-	err := Bootstrap(BootstrapOptions{Root: root, run: f.run, probe: missingTool("kind")})
+	err := Bootstrap(BootstrapOptions{Root: root, run: f.run, probe: missingTool("kind"), probeURL: allAnswer})
 	if err == nil {
 		t.Fatal("bootstrap ran with a required tool missing")
 	}

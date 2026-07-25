@@ -1,0 +1,67 @@
+###############################################################################
+# File: kind-gateway.yaml
+#
+# Description:
+# The IstioOperator overlay `istioctl install` is given on kind.
+#
+# Why this file exists:
+# The demo profile ships `istio-ingressgateway` as a Service of type
+# LoadBalancer. On a cloud provider a controller answers that and hands out an
+# address; on kind nothing does, so the Service sits in <pending> forever and the
+# mesh has an ingress gateway that nothing outside the cluster can reach. Every
+# dashboard was therefore behind a `kubectl port-forward` — a daemon that dies
+# the moment the terminal running it does, which is the exact failure this
+# platform kept demonstrating live.
+#
+# So the gateway is pinned to NodePort on two numbers that kind-config.yaml
+# publishes to the host:
+#
+#   host 8080  ->  node 30000  ->  gateway :80
+#   host 8443  ->  node 30001  ->  gateway :443
+#
+# Those two numbers are the contract between this file and kind-config.yaml, and
+# they are the only two. A test reads both files and fails if they diverge —
+# they cannot be checked by running the platform, because a mismatch produces a
+# cluster that installs perfectly and answers nothing.
+#
+# The port list is spelled out rather than patched because `k8s.service.ports`
+# replaces the profile's list wholesale. status-port is in it deliberately:
+# istiod's readiness for the gateway is probed on 15021, and dropping it makes
+# the gateway look unhealthy while serving traffic perfectly well.
+#
+# Everything else is the demo profile, unchanged — this file narrows one Service
+# and inherits the rest, so `profile: demo` stays the single description of what
+# Endurance's mesh is.
+#
+# Author: Gaurav Chaurasia
+###############################################################################
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: endurance-kind
+spec:
+  profile: demo
+  components:
+    ingressGateways:
+      - name: istio-ingressgateway
+        enabled: true
+        k8s:
+          service:
+            type: NodePort
+            ports:
+              # Istiod probes the gateway here. Must survive the port list being
+              # replaced, or a healthy gateway reports as not ready.
+              - name: status-port
+                port: 15021
+                targetPort: 15021
+              # The front door. kind publishes node 30000 as host 8080.
+              - name: http2
+                port: 80
+                targetPort: 8080
+                nodePort: 30000
+              # Reserved; nothing terminates TLS at the gateway yet. kind
+              # publishes node 30001 as host 8443.
+              - name: https
+                port: 443
+                targetPort: 8443
+                nodePort: 30001

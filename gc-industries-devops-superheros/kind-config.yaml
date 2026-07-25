@@ -1,11 +1,54 @@
+###############################################################################
+# kind cluster — Endurance
+#
+# The host side of the access layer (Phase 10).
+#
+# kind runs the cluster inside Docker containers, so a Service is only reachable
+# from the host if the node container publishes a port for it. `extraPortMappings`
+# is that publish, and it is fixed at cluster-creation time: changing anything
+# below means deleting and recreating the cluster (`endurance destroy` then
+# `endurance bootstrap`). That is why the numbers are decided once, here, and why
+# a port is reserved before it is needed.
+#
+# The pairing, and it is the platform's whole external contract:
+#
+#   host 8080  ->  node 30000  ->  istio-ingressgateway   (HTTP, everything)
+#   host 8443  ->  node 30001  ->  istio-ingressgateway   (HTTPS, reserved)
+#
+# The node ports are the nodePorts pinned in
+# platform/networking/istio/kind-gateway.yaml, which is how the Istio ingress
+# gateway — a LoadBalancer Service in the demo profile, and therefore a Service
+# that never gets an address on kind — becomes reachable at all. A test reads
+# both files and fails if the two numbers stop agreeing.
+#
+# Everything the platform exposes is then one host, path-based:
+#
+#   http://localhost:8080/            the deployed application (from its own spec)
+#   http://localhost:8080/argocd      ArgoCD
+#   http://localhost:8080/kiali       Kiali
+#   http://localhost:8080/grafana     Grafana
+#   http://localhost:8080/prometheus  Prometheus
+#   http://localhost:8080/alertmanager Alertmanager
+#
+# Path-based and not host-based on purpose: hostnames would mean editing
+# /etc/hosts, which means sudo, which means the "no manual step" promise is a
+# lie on the first machine that has an IT policy. One port, one host, six paths.
+#
+# 8443 carries no route today. It is mapped anyway because adding it later costs
+# a cluster recreate, and a reserved port costs nothing.
+###############################################################################
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
     extraPortMappings:
+      # HTTP — the front door. Everything Endurance prints lives under this one.
       - containerPort: 30000
-        hostPort: 30000
+        hostPort: 8080
+        protocol: TCP
+      # HTTPS — reserved. Nothing serves it yet; see the note above.
       - containerPort: 30001
-        hostPort: 30001
+        hostPort: 8443
+        protocol: TCP
   - role: worker
   - role: worker

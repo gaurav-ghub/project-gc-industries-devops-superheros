@@ -14,6 +14,7 @@
 #   - Install AI alert enrichment
 #   - Install GitOps (ArgoCD)
 #   - Install security (Kyverno)
+#   - Open the access layer (Kiali, ingress Gateway, platform routes)
 #
 # This script is platform-operator plumbing, not the developer-facing surface.
 # `endurance bootstrap` runs the same modules as separate subprocesses and
@@ -39,6 +40,7 @@ source "${PROJECT_ROOT}/platform/monitoring/install.sh"
 source "${PROJECT_ROOT}/platform/ai/install.sh"
 source "${PROJECT_ROOT}/platform/gitops/install.sh"
 source "${PROJECT_ROOT}/platform/security/install.sh"
+source "${PROJECT_ROOT}/platform/access/install.sh"
 
 
 main() {
@@ -63,6 +65,11 @@ main() {
     # Security runs after GitOps: it registers the ClusterPolicies as an ArgoCD
     # Application, so ArgoCD has to exist first.
     install_security
+
+    # Access runs last: every route it applies points at a Service an earlier
+    # module created, and a route to a Service that does not exist yet is a 503
+    # the first time anybody looks.
+    install_access
 
     log_success "Local platform bootstrap completed successfully."
 

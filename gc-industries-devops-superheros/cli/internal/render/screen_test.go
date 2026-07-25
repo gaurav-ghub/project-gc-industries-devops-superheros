@@ -9,7 +9,11 @@ import (
 
 func superherosResult() Result {
 	return Result{
-		Title: "superheros is deployed",
+		// Deploying, not deployed, and State left at its zero value — because
+		// one of the three pods below is still being created. The title, the
+		// glyph and the footer have to agree with the pod list or the screen is
+		// arguing with itself.
+		Title: "superheros is deploying",
 		Rows: [][2]string{
 			{"Namespace", "superheros"},
 			{"Cluster", "kind-superheros"},
@@ -24,7 +28,7 @@ func superherosResult() Result {
 		},
 		URLs: []URL{
 			{Label: "App", Addr: "http://localhost:8080/"},
-			{Label: "ArgoCD", Addr: "http://localhost:8080/argocd", Note: "admin · endurance urls --show-password"},
+			{Label: "ArgoCD", Addr: "http://localhost:8080/argocd", Note: "user admin"},
 			{Label: "Grafana", Addr: "http://localhost:8080/grafana"},
 		},
 		Hints: []Hint{
@@ -60,6 +64,49 @@ func TestSuccessScreenIsHonestAboutPendingPods(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "2 of 3 pods ready") {
 		t.Error("the footer did not carry the honest count")
+	}
+}
+
+// TestSuccessScreenGlyphFollowsTheResult.
+//
+// The title's glyph was a hardcoded ✓ until Phase 10, which meant a screen
+// headed "cluster not reached" opened with a checkmark — the untruth the rest
+// of this type is careful about, in the largest text on the screen. It now
+// follows Result.State, and the zero value is pending: a caller that says
+// nothing gets `·` rather than a claim.
+func TestSuccessScreenGlyphFollowsTheResult(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state State
+		want  string
+	}{
+		{"unstated", StatePending, IconInfo},
+		{"healthy", StateReady, IconOK},
+		{"degraded", StateFailed, IconError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, buf, _ := fixture(t)
+			res := superherosResult()
+			res.State = tc.state
+			r.SuccessScreen(res)
+
+			title := ""
+			for _, line := range strings.Split(buf.String(), "\n") {
+				if strings.Contains(line, res.Title) {
+					title = line
+					break
+				}
+			}
+			if title == "" {
+				t.Fatalf("no title line in:\n%s", buf.String())
+			}
+			if !strings.Contains(title, tc.want) {
+				t.Errorf("title glyph = %q, want %q", title, tc.want)
+			}
+			if tc.state != StateReady && strings.Contains(title, IconOK) {
+				t.Errorf("a result that is not ready opened with a checkmark: %q", title)
+			}
+		})
 	}
 }
 

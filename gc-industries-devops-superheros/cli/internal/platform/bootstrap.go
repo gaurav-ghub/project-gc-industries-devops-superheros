@@ -25,10 +25,12 @@ type BootstrapOptions struct {
 	SkipPreflight bool   // break glass: run the chain without checking the tools
 	DryRun        bool   // print the chain and the commands, run nothing
 
-	// run and probe are the two edges of the operating system this command
-	// touches. Tests replace them; the CLI never sets either.
-	run   runFunc
-	probe *probe
+	// run, probe and probeURL are the edges of the operating system this
+	// command touches — a subprocess, the tools on PATH, and the network.
+	// Tests replace them; the CLI never sets any of them.
+	run      runFunc
+	probe    *probe
+	probeURL probeFunc
 }
 
 // Bootstrap stands the platform up and returns an error if any module failed.
@@ -88,14 +90,16 @@ func Bootstrap(opts BootstrapOptions) error {
 		return fmt.Errorf("bootstrap did not complete")
 	}
 
-	accessBlock()
+	AccessBlock(root, opts.probeURL)
 
 	render.Dashboard("Platform ready", [][2]string{
 		{"Cluster", render.Value(ClusterName(root))},
 		{"Context", render.Value(ContextName(root))},
 		{"Modules", fmt.Sprintf("%d installed", len(Chain))},
+		{"Address", render.Value(BaseURL(root))},
 		{"Repo", shortPath(root)},
 	}, []string{
+		"endurance urls — the addresses above, re-checked",
 		"endurance status — is every component healthy",
 		"endurance onboard — register an application; ArgoCD deploys it",
 		"endurance destroy — delete the cluster when you are done",
@@ -103,42 +107,22 @@ func Bootstrap(opts BootstrapOptions) error {
 	return nil
 }
 
-// accessBlock prints where the platform is, once, at the end.
+// Where the access details went:
 //
-// Each bash module used to print its own version of this the moment it
-// finished: Grafana's URL and password three minutes before ArgoCD existed,
-// ArgoCD's "🎉 Welcome Onboard! Your platform is now ready" while two modules
-// were still pending. Three problems in one. It was a third visual system after
-// the one Phase 8 removed; it announced a readiness no single module is in a
-// position to claim; and it printed live admin passwords into a scrollback that
-// gets screenshotted and pasted into chats.
+// This file used to carry an accessBlock() that printed four `kubectl
+// port-forward` commands labelled "temporary until Phase 10". They are gone.
+// The block is now [AccessBlock] in urls.go, shared with `endurance urls`,
+// printing real addresses — and probing them before it claims they work.
 //
-// So the modules are quiet under ENDURANCE_FRAMED, and this runs when the whole
-// chain has actually finished. **No credential is printed** — the command that
-// fetches one is, which is the same information with a shelf life.
-//
-// The port-forwards are honest about being temporary: Phase 10 replaces them
-// with real addresses via kind extraPortMappings and the Istio gateway, and
-// this block is where those will land.
-func accessBlock() {
-	render.URLBlock("Access", []render.URL{
-		{Label: "ArgoCD", Addr: "https://localhost:8080",
-			Note: "kubectl port-forward svc/argocd-server -n argocd 8080:443"},
-		{Label: "Grafana", Addr: "http://localhost:3000",
-			Note: "kubectl port-forward svc/prometheus-grafana -n monitoring 3000:80"},
-		{Label: "Prometheus", Addr: "http://localhost:9090",
-			Note: "kubectl port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090:9090"},
-		{Label: "Alertmanager", Addr: "http://localhost:9093",
-			Note: "kubectl port-forward svc/prometheus-kube-prometheus-alertmanager -n monitoring 9093:9093"},
-	})
-	render.Blank()
-	render.Info("each address needs its port-forward running first — Phase 10 makes them permanent")
-	render.Info("credentials are not printed; ask the cluster for them when you need them:")
-	render.Detail("kubectl -n argocd get secret argocd-initial-admin-secret " +
-		`-o jsonpath="{.data.password}" | base64 -d    # ArgoCD, user admin`)
-	render.Detail("kubectl -n monitoring get secret prometheus-grafana " +
-		`-o jsonpath="{.data.admin-password}" | base64 -d    # Grafana, user admin`)
-}
+// What has not changed is the rule that put the block here in the first place.
+// Each bash module used to print its own version of it the moment it finished:
+// Grafana's URL and password three minutes before ArgoCD existed, ArgoCD's
+// "🎉 Welcome Onboard! Your platform is now ready" while two modules were still
+// pending. A second visual system, a readiness claim no single module is in a
+// position to make, and live admin passwords in a scrollback that gets
+// screenshotted. The modules are quiet under ENDURANCE_FRAMED, this runs once
+// when the whole chain has finished, and **no credential is printed** — the
+// command that fetches one is, which is the same information with a shelf life.
 
 // steps is the plan the progress counter is drawn from.
 func steps() []string {

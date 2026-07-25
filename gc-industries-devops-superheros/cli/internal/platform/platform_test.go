@@ -97,6 +97,7 @@ func TestChainMatchesTheBashModules(t *testing.T) {
 		"install_ai",
 		"install_gitops",
 		"install_security",
+		"install_access",
 	}
 	last := -1
 	for _, call := range calls {
@@ -165,6 +166,11 @@ func TestModuleSummariesAreSilentWhenFramed(t *testing.T) {
 		{"platform/gitops/argocd/install.sh", "display_argocd_information"},
 		{"platform/monitoring/prometheus/install.sh", "display_monitoring_information"},
 		{"platform/security/kyverno/install.sh", "display_kyverno_policies"},
+		// The sharpest case of the rule: this one prints the platform's URLs,
+		// and a module printing URLs mid-run is exactly what Phase 9's live
+		// bootstrap exposed. Endurance prints one Access block, at the end, and
+		// probes it first.
+		{"platform/access/verify.sh", "display_access_summary"},
 	}
 
 	for _, s := range summaries {

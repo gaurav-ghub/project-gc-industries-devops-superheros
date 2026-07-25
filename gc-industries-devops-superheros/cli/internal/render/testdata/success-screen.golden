@@ -1,27 +1,27 @@
 
-╭─────────────────────────────────────────────────────────────────────────────────╮
-│  ✓ superheros is deployed                                                       │
-│                                                                                 │
-│  Namespace  superheros                                                          │
-│  Cluster    kind-superheros                                                     │
-│  Services   5  (frontend, catalog, orders, inventory, payment)                  │
-│  Image      docker.io/gcghub/superhero-frontend:v1.4.2                          │
-│  Replicas   1 per service                                                       │
-│                                                                                 │
-│  Pods                                                                           │
-│  ✓ frontend-6d9f7c8b4d-r2x9p  Running                                           │
-│  ✓ catalog-7c5f6d4b88-k4t2m   Running                                           │
-│  · orders-59d8b7f6c5-h8w3q    ContainerCreating                                 │
-│                                                                                 │
-│  URLs                                                                           │
-│  App      http://localhost:8080/                                                │
-│  ArgoCD   http://localhost:8080/argocd  admin · endurance urls --show-password  │
-│  Grafana  http://localhost:8080/grafana                                         │
-│                                                                                 │
-│  Try                                                                            │
-│  → endurance status superheros                              services and pods   │
-│  → endurance release superheros --service catalog --tag v2  promote an image    │
-│  → kubectl get pods -n superheros                           the raw truth       │
-│                                                                                 │
-│  2 of 3 pods ready — ArgoCD is still syncing                                    │
-╰─────────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────╮
+│  · superheros is deploying                                                     │
+│                                                                                │
+│  Namespace  superheros                                                         │
+│  Cluster    kind-superheros                                                    │
+│  Services   5  (frontend, catalog, orders, inventory, payment)                 │
+│  Image      docker.io/gcghub/superhero-frontend:v1.4.2                         │
+│  Replicas   1 per service                                                      │
+│                                                                                │
+│  Pods                                                                          │
+│  ✓ frontend-6d9f7c8b4d-r2x9p  Running                                          │
+│  ✓ catalog-7c5f6d4b88-k4t2m   Running                                          │
+│  · orders-59d8b7f6c5-h8w3q    ContainerCreating                                │
+│                                                                                │
+│  URLs                                                                          │
+│  App      http://localhost:8080/                                               │
+│  ArgoCD   http://localhost:8080/argocd  user admin                             │
+│  Grafana  http://localhost:8080/grafana                                        │
+│                                                                                │
+│  Try                                                                           │
+│  → endurance status superheros                              services and pods  │
+│  → endurance release superheros --service catalog --tag v2  promote an image   │
+│  → kubectl get pods -n superheros                           the raw truth      │
+│                                                                                │
+│  2 of 3 pods ready — ArgoCD is still syncing                                   │
+╰────────────────────────────────────────────────────────────────────────────────╯

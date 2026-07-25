@@ -3,7 +3,9 @@ package platform
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +46,12 @@ func TestPreview(t *testing.T) {
 		Chain[3].Script: {"Applying AI alertmanager manifests...", "warning: No superhero-ai-secret Secret found and no secret.yaml to apply."},
 		Chain[4].Script: {"Installing ArgoCD...", "ArgoCD components installed."},
 		Chain[5].Script: {"Installing Kyverno chart (3.8.2)...", "Kyverno installed."},
+		Chain[6].Script: {
+			"Ingress gateway is a NodePort on 30000/30001.",
+			"Installing Kiali 2.17.0...",
+			"Ingress Gateway and platform routes applied.",
+			"host 8080 maps to node port 30000 (0.0.0.0:8080).",
+		},
 	}
 
 	render.Banner("preview")
@@ -68,13 +76,15 @@ func TestPreview(t *testing.T) {
 		}
 	}
 	p.Finish()
-	accessBlock()
+	AccessBlock(root, func(string) (int, error) { return 200, nil })
 	render.Dashboard("Platform ready", [][2]string{
 		{"Cluster", render.Value(ClusterName(root))},
 		{"Context", render.Value(ContextName(root))},
-		{"Modules", "6 installed"},
+		{"Modules", fmt.Sprintf("%d installed", len(Chain))},
+		{"Address", render.Value(BaseURL(root))},
 		{"Repo", shortPath(root)},
 	}, []string{
+		"endurance urls — the addresses above, re-checked",
 		"endurance status — is every component healthy",
 		"endurance onboard — register an application; ArgoCD deploys it",
 		"endurance destroy — delete the cluster when you are done",
@@ -99,4 +109,27 @@ func TestPreview(t *testing.T) {
 	o.Close()
 	_ = fs.Fail(errors.New("platform/networking/install.sh: exit status 1"))
 	f.Finish()
+
+	// `endurance urls --check`, both ways round. The second is the shape that
+	// matters and the one nobody would otherwise look at until a demo: a
+	// cluster created before the access layer, where every module installed
+	// perfectly and nothing on the host can reach any of it.
+	render.Section("preview · endurance urls --check, everything answering")
+	_ = Urls(UrlsOptions{Root: root, Check: true, probe: func(string) (int, error) { return 200, nil }})
+
+	render.Section("preview · endurance urls --check, a cluster with no port mappings")
+	_ = Urls(UrlsOptions{Root: root, Check: true, probe: func(string) (int, error) {
+		return 0, errors.New("connection refused")
+	}})
+
+	// And one route missing rather than all of them — an application's `/` that
+	// shadowed a dashboard, or a route that never applied. It has to read
+	// differently from "the platform is down", because the fix is different.
+	render.Section("preview · endurance urls --check, one route gone")
+	_ = Urls(UrlsOptions{Root: root, Check: true, probe: func(u string) (int, error) {
+		if strings.HasSuffix(u, "/kiali") {
+			return 404, nil
+		}
+		return 200, nil
+	}})
 }

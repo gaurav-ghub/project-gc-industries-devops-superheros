@@ -1,9 +1,12 @@
 package platform
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
+	"github.com/gc-ghub/endurance/internal/render"
 	"github.com/gc-ghub/endurance/internal/version"
 )
 
@@ -103,24 +106,62 @@ func TestArgoCDIsReportedAsUnpinned(t *testing.T) {
 	t.Error("argo-cd is not among the components")
 }
 
-// TestKialiIsReportedAsNotInstalled — networking/versions.yaml carries a Kiali
-// version behind `installed: false`. Reporting the number without that flag
-// would claim a capability the platform does not have until Phase 10.
-func TestKialiIsReportedAsNotInstalled(t *testing.T) {
+// TestKialiIsPinnedByTheModuleThatInstallsIt.
+//
+// Kiali spent three phases being declared in two files and installed by
+// neither: platform/networking/versions.yaml carried an aspirational number
+// behind `installed: false`, platform/monitoring/versions.yaml carried a chart
+// entry for a module that did not exist, and `endurance version` correctly
+// reported `· not installed`. Phase 10 wrote the module, and the version moved
+// to the file that module's installer actually reads.
+//
+// This test asserts the whole of that: one source, and it is the one bash
+// consults. Otherwise the platform is back to documenting a version it does not
+// install, which is the mistake platform/networking/versions.yaml has a
+// paragraph about.
+func TestKialiIsPinnedByTheModuleThatInstallsIt(t *testing.T) {
 	root := repoRoot(t)
 	for _, c := range Components(root) {
 		if c.Name != "kiali" {
 			continue
 		}
-		if !c.Optional {
-			t.Fatal("kiali is reported as installed — networking/versions.yaml says otherwise")
+		if c.Optional {
+			t.Fatal("kiali is still reported as not installed — platform/access installs it")
 		}
-		if c.check().Note == "" || !strings.Contains(c.check().Note, "not installed") {
-			t.Errorf("the note does not say it is not installed: %q", c.check().Note)
+		if c.Version == "" {
+			t.Fatalf("kiali has no version: %q", c.Note)
+		}
+		if c.Source != accessVersions {
+			t.Errorf("kiali's version is read from %s, not from the module that installs it", c.Source)
+		}
+		if state := c.check().State; state != render.StateReady {
+			t.Errorf("a pinned, installed component did not render as ready (state %v)", state)
+		}
+		// The version the installer will hand to helm is the version reported
+		// here, and the installer reads it with sed rather than a YAML parser —
+		// so prove the two readers agree on the real file.
+		if got := kialiVersionAsBashReadsIt(t, root); got != c.Version {
+			t.Errorf("bash reads kiali version %q, Go reads %q — %s has two readers and one number",
+				got, c.Version, accessVersions)
 		}
 		return
 	}
 	t.Error("kiali is not among the components")
+}
+
+// kialiVersionAsBashReadsIt runs the module's own reader against the real file.
+func kialiVersionAsBashReadsIt(t *testing.T, root string) string {
+	t.Helper()
+	bash := requireBash(t)
+	cmd := exec.Command(bash, "-c",
+		`source platform/access/install.sh >/dev/null 2>&1; declared_kiali_version`)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), EnvFramed+"=1")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("reading the kiali version from bash: %v", err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func TestVersionShortIsOneLine(t *testing.T) {

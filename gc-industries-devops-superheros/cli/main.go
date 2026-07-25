@@ -14,7 +14,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -26,6 +25,7 @@ import (
 	"github.com/gc-ghub/endurance/internal/policy"
 	"github.com/gc-ghub/endurance/internal/release"
 	"github.com/gc-ghub/endurance/internal/render"
+	"github.com/gc-ghub/endurance/internal/success"
 	"github.com/gc-ghub/endurance/internal/version"
 )
 
@@ -49,6 +49,8 @@ func main() {
 		err = cmdDoctor(args)
 	case "destroy":
 		err = cmdDestroy(args)
+	case "urls":
+		err = cmdUrls(args)
 
 	// The application half: these only write git.
 	case "onboard":
@@ -118,6 +120,24 @@ func cmdDestroy(args []string) error {
 		return err
 	}
 	return platform.Destroy(platform.DestroyOptions{Root: *root, Yes: *yes})
+}
+
+// cmdUrls prints where the platform is — and with --check, whether it is
+// actually there.
+//
+// The addresses are real ones served by the Istio ingress gateway through the
+// ports kind publishes to the host, so there is nothing to keep running in a
+// terminal. --check exists because printing a list of URLs proves only that the
+// CLI can format a string, and this platform has a rule about claiming outcomes
+// it has not observed.
+func cmdUrls(args []string) error {
+	fs := flag.NewFlagSet("urls", flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	check := fs.Bool("check", false, "ask each address whether it answers")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return platform.Urls(platform.UrlsOptions{Root: *root, Check: *check})
 }
 
 // cmdVersion prints the CLI version and, unless --short, the version of every
@@ -426,11 +446,16 @@ func cmdList(args []string) error {
 
 // cmdStatus answers "is it up?" about whichever thing was named.
 //
-// With an application, that is the application's services and pods — the Phase
-// 1 command, unchanged. With nothing, it is the platform itself: the cluster
-// and every component the bootstrap installed. One verb, because a developer
-// asking whether things are working should not have to know which half of the
-// system they are asking about.
+// With nothing, it is the platform itself: the cluster and every component the
+// bootstrap installed. With an application, it is the post-deploy success
+// screen — what was deployed, where it is, whether it is actually up yet, and
+// what to type next. One verb, because a developer asking whether things are
+// working should not have to know which half of the system they are asking
+// about.
+//
+// Until Phase 10 the application half printed kubectl's own pod table, because
+// there was nothing else honest to show: the success screen wanted URLs and
+// there were none. There are now.
 func cmdStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	root := fs.String("root", ".", "platform repo root")
@@ -446,50 +471,8 @@ func cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-
-	app, err := gitops.Load(*root, name)
-	if err != nil {
-		return fmt.Errorf("no registered app %q (%v)", name, err)
-	}
 	render.Banner(version.Current)
-	render.Section("Status · " + app.Name)
-	render.Info(fmt.Sprintf("namespace=%s  services=%d", app.Namespace, len(app.Services)))
-
-	if _, err := exec.LookPath("kubectl"); err != nil {
-		render.Warn("kubectl not found — showing registry only")
-		for _, s := range app.Services {
-			render.Step(render.Value(s.Name) + "  " + s.Image + ":" + s.Tag)
-		}
-		return nil
-	}
-	out, kerr := exec.Command("kubectl", "get", "pods", "-n", app.Namespace,
-		"-l", "app.kubernetes.io/part-of="+app.Name, "--no-headers").CombinedOutput()
-	if kerr != nil {
-		// One line, not kubectl's whole stack of "Unhandled Error" noise: the
-		// platform half of this command learned to say "not reachable — run
-		// `endurance bootstrap`", and one command must not have two voices.
-		render.Warn("could not query the cluster — `endurance status` reports whether the platform is up")
-		render.Detail(strings.TrimSpace(lastLine(string(out))))
-		return nil
-	}
-	// kubectl says "No resources found in <ns> namespace." on stderr and exits
-	// 0, so an empty namespace arrives here as output rather than as nothing.
-	if len(out) == 0 || strings.HasPrefix(strings.TrimSpace(string(out)), "No resources found") {
-		render.Warn("no pods yet — ArgoCD deploys from the pushed repo, so check the commit landed")
-		render.Detail("git push, then `endurance status " + app.Name + "` again")
-		return nil
-	}
-	// kubectl's table is not ours to restyle, but it still goes through the
-	// renderer so it cannot land in the middle of a live step's line.
-	render.Print(string(out))
-	return nil
-}
-
-// lastLine is kubectl's actual complaint: the useful sentence is at the bottom,
-// under however many "Unhandled Error" lines the client logged on the way.
-func lastLine(s string) string {
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return lines[len(lines)-1]
+	return success.Screen(success.Options{Root: *root, App: name})
 }
 
 func usage() {
@@ -499,8 +482,9 @@ func usage() {
 Platform commands (operator):
   doctor              Check this machine can stand the platform up
   bootstrap           Install the platform: cluster, Istio, monitoring, AI,
-                      ArgoCD, Kyverno — one framed run
+                      ArgoCD, Kyverno, access — one framed run
   status              Show whether the cluster and every component is healthy
+  urls                Show where the platform is; --check asks each address
   destroy             Delete the kind cluster and everything installed in it
 
 Application commands (developer):
@@ -518,12 +502,19 @@ Application commands (developer):
   version             Print the CLI version and every component's version
   help                Show this help
 
-Platform flags (doctor, bootstrap, status, destroy, version):
+Platform flags (doctor, bootstrap, status, urls, destroy, version):
   --root <dir>          platform repo root (default: found by walking up)
   --dry-run             bootstrap: print the chain and the commands, run nothing
   --skip-preflight      bootstrap: run the modules without checking the tools
+  --check               urls: ask each address whether it answers
   --yes                 destroy: do not ask for confirmation
   --short               version: print only ` + "`endurance <version>`" + `
+
+Everything the platform exposes is on one host, path-based, through the Istio
+ingress gateway on the port kind-config.yaml publishes:
+  ` + platform.DefaultBaseURL + `/argocd   /kiali   /grafana   /prometheus   /alertmanager
+No port-forward, no daemon, no /etc/hosts. An application's own URL comes from
+a route: block in its spec, never from the platform.
 
 The platform commands run the bash modules under platform/ as subprocesses,
 with ` + platform.EnvFramed + `=1 in their environment, and stream their output

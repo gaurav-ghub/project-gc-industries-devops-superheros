@@ -257,6 +257,35 @@ func (a *App) ApplyDefaults() {
 		s.Security.RunAsNonRoot = true
 		s.Security.AllowPrivilegeEscalation = false
 	}
+	a.applyRouteDefaults()
+}
+
+// applyRouteDefaults fills in the parts of a route an author should not have to
+// write: where the platform's Gateway is, that a route with no path means the
+// root, and which port the named service listens on.
+//
+// The port matters most. A route that names a service and repeats its port is
+// two statements of one fact, and the second one goes stale the day the service
+// moves. Reading it from the service is why `route.port` is almost never set by
+// hand.
+func (a *App) applyRouteDefaults() {
+	if !a.Route.Enabled {
+		// A disabled route keeps no fields at all, so a file that turned one
+		// off does not carry the fossil of the one it used to have.
+		a.Route = Route{}
+		return
+	}
+	if a.Route.Gateway == "" {
+		a.Route.Gateway = DefaultGateway
+	}
+	if a.Route.Path == "" {
+		a.Route.Path = DefaultRoutePath
+	}
+	if a.Route.Port == 0 {
+		if i := a.FindService(a.Route.Service); i >= 0 {
+			a.Route.Port = a.Services[i].Port
+		}
+	}
 }
 
 // Mesh is the application's opt-in to Istio.
@@ -270,6 +299,51 @@ type Mesh struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// DefaultGateway is the platform's one ingress Gateway, in the form Istio wants
+// a cross-namespace reference: <namespace>/<name>.
+//
+// It is written into an application's values rather than hardcoded in the
+// chart, so the chart carries no platform knowledge and the reference is
+// visible in the generated file a reviewer reads. The same string is spelled in
+// platform/access/manifests/gateway.yaml and in cli/internal/platform; tests
+// read the manifest and fail if the three drift.
+const DefaultGateway = "istio-system/endurance-gateway"
+
+// DefaultRoutePath is where an application lands when it asks for a route and
+// says nothing about where: the root of the platform's one host.
+const DefaultRoutePath = "/"
+
+// Route is an application's request for a URL.
+//
+// # Why this lives in the application's spec and not in the platform
+//
+// The platform owns the front door — one Istio Gateway, one host, path-based —
+// and it deliberately knows nothing about what is behind any given path. The
+// pre-Endurance superhero chart had `/api/catalog` baked into a gateway route,
+// which meant the platform could only ever serve that one application. So an
+// application that wants an address says so here, in its own spec, and
+// charts/app renders a VirtualService bound to the platform's Gateway. The
+// platform provides the door; the application says which room it is.
+//
+// # It is opt-in
+//
+// Most services in a multi-service application are internal — catalog, orders
+// and payment are called by the frontend and by nothing outside the cluster.
+// Exposing all of them would be a security decision made by omission. One
+// route, naming one service, is the whole surface.
+type Route struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path,omitempty"`
+	Service string `yaml:"service,omitempty"`
+	// Port is the Service port traffic is sent to. Left empty it is filled in
+	// from the named service, which is what anyone would mean.
+	Port int `yaml:"port,omitempty"`
+	// Gateway is the platform Gateway to bind to. Set by ApplyDefaults, and
+	// overridable only because a platform that hardcodes its own name into an
+	// application's file is a platform that cannot be renamed.
+	Gateway string `yaml:"gateway,omitempty"`
+}
+
 // App is a registered application: a namespace + owner + a set of services.
 type App struct {
 	Name       string    `yaml:"name"`
@@ -277,8 +351,26 @@ type App struct {
 	Repository string    `yaml:"repository"`
 	Owner      string    `yaml:"owner"`
 	Mesh       Mesh      `yaml:"mesh,omitempty"`
+	Route      Route     `yaml:"route,omitempty"`
 	Notify     Notify    `yaml:"notify,omitempty"`
 	Services   []Service `yaml:"services"`
+}
+
+// URL is the address this application answers on, given the platform's base
+// address, or "" when it asked for no route.
+//
+// base is passed in rather than known here: which host port the platform is
+// published on is a fact about the cluster (kind-config.yaml), and the spec
+// package must not grow an opinion about it.
+func (a App) URL(base string) string {
+	if !a.Route.Enabled {
+		return ""
+	}
+	path := a.Route.Path
+	if path == "" || path == DefaultRoutePath {
+		return base + "/"
+	}
+	return base + path
 }
 
 // CanaryServices lists the services split across weighted versions.
@@ -383,6 +475,9 @@ func (a App) Validate() error {
 	if err := validateNotify(a.Notify); err != nil {
 		return err
 	}
+	if err := a.validateRoute(); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for _, s := range a.Services {
 		if !dns1123.MatchString(s.Name) {
@@ -416,6 +511,61 @@ func (a App) Validate() error {
 	}
 	return nil
 }
+
+// validateRoute checks an application's request for a URL.
+//
+// The rejections are all of one kind: a route that is declared, looks
+// configured, and silently routes nowhere. Istio accepts a VirtualService
+// pointing at a service that does not exist — it simply returns 503 to every
+// request — so the check has to happen before the file is written, not when
+// somebody opens a browser.
+func (a App) validateRoute() error {
+	r := a.Route
+	if !r.Enabled {
+		// A disabled route with fields set is a route somebody meant to turn
+		// on. Saying so beats deploying an application with no address and no
+		// explanation.
+		if r.Service != "" || r.Path != "" {
+			return fmt.Errorf("route declares service/path but enabled is false — "+
+				"set `enabled: true` to publish %s, or delete the block", a.Name)
+		}
+		return nil
+	}
+	if r.Service == "" {
+		return fmt.Errorf("route.enabled is true but no service is named — "+
+			"which of %s should answer the URL?", strings.Join(a.ServiceNames(), ", "))
+	}
+	if a.FindService(r.Service) < 0 {
+		return fmt.Errorf("route names service %q, which app %q does not declare — services are: %s",
+			r.Service, a.Name, strings.Join(a.ServiceNames(), ", "))
+	}
+	if r.Path != "" && !strings.HasPrefix(r.Path, "/") {
+		return fmt.Errorf("route path %q must start with '/' — it is a path on the platform's host, not a hostname", r.Path)
+	}
+	// The platform's own dashboards live under these. An application that
+	// claimed one would either be shadowed by them or shadow them, depending on
+	// which VirtualService Istio happened to create first — and the failure
+	// would look like "ArgoCD is down".
+	for _, reserved := range ReservedPaths {
+		if r.Path == reserved || strings.HasPrefix(r.Path, reserved+"/") {
+			return fmt.Errorf("route path %q is reserved for the platform's own dashboards "+
+				"(%s) — pick another path", r.Path, strings.Join(ReservedPaths, ", "))
+		}
+	}
+	if r.Port < 0 || r.Port > 65535 {
+		return fmt.Errorf("route port %d out of range", r.Port)
+	}
+	return nil
+}
+
+// ReservedPaths are the prefixes the platform routes to its own dashboards. An
+// application may not take one.
+//
+// Duplicated from the platform package on purpose: spec must not import it —
+// the dependency runs the other way, and an application model that knows about
+// bootstrap is an application model that cannot be split out in Phase 13. A
+// test in the platform package compares the two lists.
+var ReservedPaths = []string{"/argocd", "/kiali", "/grafana", "/prometheus", "/alertmanager"}
 
 // validateVersions checks a canary service.
 //

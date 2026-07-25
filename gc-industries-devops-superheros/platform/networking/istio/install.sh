@@ -43,6 +43,11 @@ install_istio() {
 
         verify_istio_installation
 
+        # An Istio that predates the access layer has a LoadBalancer ingress
+        # gateway with no address, so every URL Endurance prints would be
+        # unreachable while the module reported a clean skip. Reconcile it.
+        ensure_ingress_gateway_published
+
         return
 
     fi
@@ -190,10 +195,149 @@ download_istioctl() {
 
 
 
+###############################################################################
+# The ingress gateway
+#
+# The demo profile's istio-ingressgateway is a LoadBalancer Service. On kind
+# nothing answers that, so it stays <pending> forever and the mesh has a front
+# door nobody outside the cluster can open — which is why every dashboard used
+# to be behind a `kubectl port-forward`. kind-gateway.yaml pins the Service to
+# NodePort on the two numbers kind-config.yaml publishes to the host.
+###############################################################################
+
+GATEWAY_OVERLAY="${ISTIO_DIR}/kind-gateway.yaml"
+INGRESS_GATEWAY_SERVICE="istio-ingressgateway"
+INGRESS_GATEWAY_NAMESPACE="istio-system"
+
+
+# declared_node_port reads a nodePort out of the overlay by its port name.
+#
+# awk rather than yq, for the same reason declared_istio_version uses sed: this
+# runs before the platform has installed anything, and requiring a YAML
+# processor to find out which port the front door listens on would make the
+# platform's own prerequisites depend on a tool nothing has checked for.
+#
+# The block ends at the next `- name:` and not at the next `nodePort:`, so a
+# port that declares none — status-port — reports nothing rather than borrowing
+# the number belonging to the entry below it.
+declared_node_port() {
+
+    local name="$1"
+
+    awk -v want="${name}" '
+        $1 == "-" && $2 == "name:" { inblock = ($3 == want) ; next }
+        inblock && $1 == "nodePort:" { print $2 ; exit }
+    ' "${GATEWAY_OVERLAY}"
+
+}
+
+
+# current_node_port reads the nodePort the cluster is actually serving.
+current_node_port() {
+
+    local name="$1"
+
+    kubectl get service "${INGRESS_GATEWAY_SERVICE}" \
+        -n "${INGRESS_GATEWAY_NAMESPACE}" \
+        -o "jsonpath={.spec.ports[?(@.name=='${name}')].nodePort}" \
+        2>/dev/null
+
+}
+
+
+ingress_gateway_published() {
+
+    local want_http want_https got_http got_https type
+
+    want_http="$(declared_node_port http2)"
+    want_https="$(declared_node_port https)"
+
+    type="$(kubectl get service "${INGRESS_GATEWAY_SERVICE}" \
+        -n "${INGRESS_GATEWAY_NAMESPACE}" \
+        -o jsonpath='{.spec.type}' 2>/dev/null)"
+
+    got_http="$(current_node_port http2)"
+    got_https="$(current_node_port https)"
+
+    [[ "${type}" == "NodePort" ]] \
+        && [[ -n "${want_http}" && "${got_http}" == "${want_http}" ]] \
+        && [[ -n "${want_https}" && "${got_https}" == "${want_https}" ]]
+
+}
+
+
+verify_ingress_gateway_published() {
+
+    log_info "Verifying the ingress gateway is published..."
+
+    if ingress_gateway_published; then
+
+        log_success "Ingress gateway is a NodePort on $(declared_node_port http2)/$(declared_node_port https)."
+
+        echo
+
+        return 0
+
+    fi
+
+    log_error "The ingress gateway is not published on the platform's node ports."
+
+    echo
+
+    kubectl get service "${INGRESS_GATEWAY_SERVICE}" -n "${INGRESS_GATEWAY_NAMESPACE}" 2>&1 || true
+
+    echo
+
+    echo "Endurance publishes the mesh's front door on the node ports declared in"
+    echo "platform/networking/istio/kind-gateway.yaml, which kind-config.yaml maps to"
+    echo 'the host. Without them every address `endurance urls` prints is unreachable.'
+
+    echo
+
+    return 1
+
+}
+
+
+# ensure_ingress_gateway_published converts a gateway installed before the
+# access layer existed. `istioctl install` is an upgrade in place, so re-running
+# it with the overlay is the whole fix; it is not run unconditionally because on
+# a correct cluster it costs a minute and changes nothing.
+ensure_ingress_gateway_published() {
+
+    if ingress_gateway_published; then
+
+        log_info "Ingress gateway is already published on the platform's node ports."
+
+        echo
+
+        return 0
+
+    fi
+
+    log_info "Ingress gateway is not published on the platform's node ports — reconciling."
+
+    echo
+
+    ensure_istioctl_installed
+
+    install_istio_control_plane
+
+    if ! verify_ingress_gateway_published; then
+
+        log_error "Reconciling the ingress gateway did not publish it."
+
+        exit 1
+
+    fi
+
+}
+
+
 install_istio_control_plane() {
 
     if istioctl install \
-        --set profile=demo \
+        -f "${GATEWAY_OVERLAY}" \
         -y
     then
 
@@ -224,6 +368,12 @@ perform_istio_installation() {
     install_istio_control_plane
 
     verify_istio_installation
+
+    if ! verify_ingress_gateway_published; then
+
+        exit 1
+
+    fi
 
 }
 

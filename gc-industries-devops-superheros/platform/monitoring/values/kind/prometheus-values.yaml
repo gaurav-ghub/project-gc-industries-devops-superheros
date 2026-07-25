@@ -1,14 +1,63 @@
+###############################################################################
+# Serving the observability stack from subpaths (Phase 10 — the access layer)
+#
+# Grafana, Prometheus and Alertmanager are reached through the platform's Istio
+# ingress gateway at http://localhost:8080/{grafana,prometheus,alertmanager}.
+#
+# Each is told its own address rather than having its URI rewritten at the
+# gateway. A UI served at / and reached at /grafana answers the first request
+# correctly and then asks the browser for /public/build/app.js, which is not a
+# path the gateway routes anywhere — so the page loads unstyled and empty and
+# looks like a broken cluster. Rewriting fixes exactly one request. Telling the
+# component where it lives fixes all of them.
+#
+# The host port in these URLs comes from kind-config.yaml; a Go test fails if
+# they stop agreeing.
+###############################################################################
+
 grafana:
   persistence:
     enabled: false
 
+  grafana.ini:
+    server:
+      domain: localhost
+      root_url: "http://localhost:8080/grafana"
+      # Without this Grafana knows its public URL and still serves its assets
+      # from /, which is the half-configured state that looks like a Grafana bug.
+      serve_from_sub_path: true
+
+  # serve_from_sub_path moves *everything* under /grafana, including
+  # /api/health — which is where the chart's probes point. Left alone, Grafana
+  # comes up, serves perfectly, fails both probes on a 404 and is killed and
+  # restarted forever. The monitoring module would report a broken Grafana and
+  # the fault would be in this file.
+  readinessProbe:
+    httpGet:
+      path: /grafana/api/health
+      port: 3000
+  livenessProbe:
+    httpGet:
+      path: /grafana/api/health
+      port: 3000
+    initialDelaySeconds: 60
+    timeoutSeconds: 30
+    failureThreshold: 10
+
 prometheus:
   prometheusSpec:
     replicas: 1
+    # routePrefix changes what the pod serves; externalUrl changes the links it
+    # generates (alert "Source" links, most visibly). Both, or an alert in Slack
+    # points at an address nothing answers.
+    routePrefix: /prometheus
+    externalUrl: http://localhost:8080/prometheus
 
 alertmanager:
   alertmanagerSpec:
     replicas: 1
+    routePrefix: /alertmanager
+    externalUrl: http://localhost:8080/alertmanager
 
   # Platform alert routing lives in the MAIN Alertmanager config so it is always
   # consumed. NOTE: the active installer (platform/monitoring/prometheus/

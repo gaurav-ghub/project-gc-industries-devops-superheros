@@ -33,14 +33,23 @@ type Hint struct {
 // A Result is the end-of-run success screen: what was deployed, where it is,
 // whether it is actually up yet, and what to type next.
 //
-// Phase 10 fills it from a live cluster. Phase 8 only owns what it looks like —
-// and one rule about what it may say: Pods carry a [State], and a pod that is
-// not Running yet renders as pending, not as a ✓. A success screen that claims
-// health it has not observed is the fastest way to make a platform untrusted,
-// so Footer exists to say the quiet part ("2 of 3 pods ready — ArgoCD is still
-// syncing") rather than round it up.
+// Phase 10 fills it from a live cluster. Phase 8 owns what it looks like — and
+// one rule about what it may say: a success screen that claims health it has
+// not observed is the fastest way to make a platform untrusted. That rule now
+// runs from top to bottom of the screen:
+//
+//   - [Result.State] decides the glyph beside the title. It was a hardcoded ✓
+//     until Phase 10, which meant a screen headed "cluster not reached" opened
+//     with a checkmark — the exact untruth the rest of this type is careful
+//     about, in the largest text on the screen. The zero value is pending, so
+//     a caller that says nothing gets `·` rather than a claim.
+//   - Pods carry their own [State], and one that is not Running yet renders
+//     pending rather than ✓.
+//   - Footer says the quiet part ("2 of 3 pods ready — ArgoCD is still
+//     syncing") rather than rounding it up.
 type Result struct {
 	Title  string
+	State  State       // the glyph beside the title; zero value is pending
 	Rows   [][2]string // Namespace / Cluster / Image / Replicas …
 	Pods   []Pod
 	URLs   []URL
@@ -51,7 +60,7 @@ type Result struct {
 // SuccessScreen prints the end-of-run screen.
 func (r *Renderer) SuccessScreen(res Result) {
 	var b strings.Builder
-	b.WriteString(r.ok.Render(IconOK) + " " + r.brand.Render(res.Title) + "\n")
+	b.WriteString(r.Icon(res.State) + " " + r.brand.Render(res.Title) + "\n")
 
 	if len(res.Rows) > 0 {
 		b.WriteString("\n")

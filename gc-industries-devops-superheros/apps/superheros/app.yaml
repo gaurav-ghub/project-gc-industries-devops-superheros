@@ -6,6 +6,12 @@ repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.g
 owner: gc-industries
 mesh:
     enabled: true
+route:
+    enabled: true
+    path: /
+    service: frontend
+    port: 80
+    gateway: istio-system/endurance-gateway
 notify:
     enabled: true
     webhook: endurance-sink

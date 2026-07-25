@@ -18,12 +18,45 @@
 # Author: Gaurav Chaurasia
 ###############################################################################
 
+###############################################################################
+# Serving ArgoCD from /argocd (Phase 10 — the access layer)
+#
+# ArgoCD is reached at http://localhost:8080/argocd, through the platform's
+# Istio ingress gateway. Three settings, and each one is doing something
+# different:
+#
+#   server.insecure   argocd-server serves HTTPS by default and redirects HTTP
+#                     to it. Behind a gateway that already terminated the
+#                     connection, that redirect is an infinite loop — the
+#                     browser is on HTTP, the server insists on HTTPS, the
+#                     gateway speaks HTTP to the pod. TLS ends at the gateway.
+#
+#   server.rootpath   tells argocd-server that its own URLs begin with /argocd,
+#                     so its API and redirects are right.
+#
+#   server.basehref   tells the single-page app where its assets live, so the
+#                     first stylesheet request is /argocd/assets/... and not
+#                     /assets/....
+#
+# Nothing rewrites the URI at the gateway. A rewrite fixes the first request and
+# nothing the page then asks for; the component that renders a link is the
+# component that has to know its own address.
+###############################################################################
+configs:
+  params:
+    server.insecure: true
+    server.rootpath: /argocd
+    server.basehref: /argocd
+
 notifications:
   enabled: true
 
-  # Used by {{.context.argocdUrl}} in the templates below. The platform is
-  # local, so this is the documented port-forward address.
-  argocdUrl: https://localhost:8080
+  # Used by {{.context.argocdUrl}} in the templates below — the address a
+  # developer clicks in a Slack message. Real since Phase 10: it is the
+  # gateway's, not a port-forward's, so it works without anything running in a
+  # terminal. The host port comes from kind-config.yaml, and a Go test fails if
+  # this line and that file stop agreeing.
+  argocdUrl: http://localhost:8080/argocd
 
   #--------------------------------------------------------------------------
   # Services — where a message can be delivered.

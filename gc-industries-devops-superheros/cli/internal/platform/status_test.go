@@ -55,7 +55,7 @@ func allHealthy() map[string]string {
 // pod earns a ✓. A pod that is Running with 1 of 2 containers up is not serving
 // anything, and a Terminating pod can still read 2/2.
 func TestParsePodsCountsOnlyWhatIsActuallyServing(t *testing.T) {
-	pods := parsePods(`istiod-1   1/1   Running            0   10m
+	pods := ParsePodTable(`istiod-1   1/1   Running            0   10m
 istiod-2   1/2   Running            3   2m
 istiod-3   2/2   Terminating        0   9m
 istiod-4   0/1   ContainerCreating  0   5s
@@ -66,8 +66,8 @@ istiod-5   0/1   CrashLoopBackOff   7   4m`)
 	}
 	want := []bool{true, false, false, false, false}
 	for i, p := range pods {
-		if p.ready != want[i] {
-			t.Errorf("%s (%s): ready = %v, want %v", p.name, p.status, p.ready, want[i])
+		if p.Ready != want[i] {
+			t.Errorf("%s (%s): ready = %v, want %v", p.Name, p.Status, p.Ready, want[i])
 		}
 	}
 }

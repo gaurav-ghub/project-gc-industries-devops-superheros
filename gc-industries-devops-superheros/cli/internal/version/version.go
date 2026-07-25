@@ -21,4 +21,11 @@ package version
 //	        gathered into one block at the end, a thin progress bar in place of
 //	        the spinner, steps that resolve in the past tense, red bars for a
 //	        teardown
-const Current = "v0.8.1"
+//	v0.9.0  the access layer — kind publishes the Istio ingress gateway to the
+//	        host, everything the platform exposes moves to one path-based
+//	        address, Kiali arrives with the new platform/access module,
+//	        `endurance urls` prints those addresses and probes them, and
+//	        `endurance status <app>` becomes the post-deploy success screen.
+//	        An application asks for its own URL in its spec; the platform
+//	        provides the door and does not decide what is behind it
+const Current = "v0.9.0"

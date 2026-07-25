@@ -41,8 +41,9 @@ type versionsFile struct {
 		Version string `yaml:"version"`
 	} `yaml:"istio"`
 	Kiali struct {
-		Installed bool   `yaml:"installed"`
-		Version   string `yaml:"version"`
+		Chart   string `yaml:"chart"`
+		Version string `yaml:"version"`
+		WebRoot string `yaml:"web_root"`
 	} `yaml:"kiali"`
 	Prometheus struct {
 		Chart   string `yaml:"chart"`
@@ -155,6 +156,7 @@ func Components(root string) []Component {
 	net, _ := readVersions(root, "platform/networking/versions.yaml")
 	mon, _ := readVersions(root, "platform/monitoring/versions.yaml")
 	ai, _ := readVersions(root, "platform/ai/versions.yaml")
+	acc, _ := readVersions(root, accessVersions)
 
 	platformVersion, _ := shellVar(root, versionFile, "PLATFORM_VERSION")
 	kyverno, kerr := shellVar(root, "platform/security/kyverno/install.sh", "KYVERNO_CHART_VERSION")
@@ -174,13 +176,15 @@ func Components(root string) []Component {
 	if kerr != nil {
 		kyvernoComp.Note = "could not read the chart version from the installer"
 	}
+	// Kiali is installed by platform/access since Phase 10, and its version
+	// lives in that module's own versions.yaml — the file its installer reads.
+	// Until then it was declared in two files, installed by neither, and
+	// reported as `· not installed`, which is what it was.
 	kiali := Component{
-		Name: "kiali", Version: net.Kiali.Version,
-		Source:   "platform/networking/versions.yaml",
-		Optional: !net.Kiali.Installed,
+		Name: "kiali", Version: acc.Kiali.Version, Source: accessVersions,
 	}
-	if kiali.Optional {
-		kiali.Note = "not installed — the access layer is Phase 10"
+	if kiali.Version == "" {
+		kiali.Note = "no version pinned in " + accessVersions
 	}
 
 	return []Component{

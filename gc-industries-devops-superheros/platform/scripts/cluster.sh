@@ -96,6 +96,100 @@ validate_cluster() {
 }
 
 
+###############################################################################
+# Published ports — the host half of the access layer
+#
+# kind fixes extraPortMappings at cluster-creation time. A cluster created
+# before kind-config.yaml declared them comes up perfectly healthy and cannot
+# be reached from the host at all, so every address Endurance prints would be
+# a dead link while every module reported success.
+#
+# One definition, two callers, as with cluster creation itself: the access
+# module sources this file to make the same check after it has installed the
+# routes.
+###############################################################################
+
+# declared_port_mappings emits "containerPort hostPort" for each mapping in
+# kind-config.yaml. The two keys always appear in that order, one pair per
+# entry, which is what makes this readable without a YAML processor.
+declared_port_mappings() {
+
+    awk '
+        $1 == "-" && $2 == "containerPort:" { container = $3 ; next }
+        $1 == "containerPort:"              { container = $2 ; next }
+        $1 == "hostPort:" && container != "" { print container, $2 ; container = "" }
+    ' "${KIND_CONFIG}"
+
+}
+
+
+# cluster_publishes_ports reports whether the node container actually publishes
+# every mapping kind-config.yaml declares. Quiet: callers decide what to say.
+cluster_publishes_ports() {
+
+    local node="${CLUSTER_NAME}-control-plane"
+    local container host
+
+    while read -r container host; do
+
+        [[ -z "${container}" ]] && continue
+
+        if [[ -z "$(docker port "${node}" "${container}/tcp" 2>/dev/null)" ]]; then
+
+            return 1
+
+        fi
+
+    done < <(declared_port_mappings)
+
+    return 0
+
+}
+
+
+verify_cluster_port_mappings() {
+
+    log_info "Checking the cluster publishes the platform's ports..."
+
+    local node="${CLUSTER_NAME}-control-plane"
+    local container host published missing=0
+
+    while read -r container host; do
+
+        [[ -z "${container}" ]] && continue
+
+        published="$(docker port "${node}" "${container}/tcp" 2>/dev/null | head -1)"
+
+        if [[ -z "${published}" ]]; then
+
+            log_warn "Node ${node} does not publish container port ${container} (host ${host})."
+
+            missing=1
+
+        else
+
+            log_info "host ${host} maps to node port ${container} (${published})."
+
+        fi
+
+    done < <(declared_port_mappings)
+
+    if [[ "${missing}" -ne 0 ]]; then
+
+        log_warn "This cluster was created before kind-config.yaml declared those mappings."
+        log_warn "kind fixes them at creation time, so the cluster has to be recreated:"
+        log_warn "  endurance destroy   then   endurance bootstrap"
+        log_warn "Until then the platform installs correctly and none of its URLs answer."
+
+        return 0
+
+    fi
+
+    log_success "The cluster publishes every declared port mapping."
+
+}
+
+
 bootstrap_cluster() {
 
     if cluster_exists; then
@@ -111,6 +205,8 @@ bootstrap_cluster() {
     wait_for_cluster
 
     validate_cluster
+
+    verify_cluster_port_mappings
 
 }
 

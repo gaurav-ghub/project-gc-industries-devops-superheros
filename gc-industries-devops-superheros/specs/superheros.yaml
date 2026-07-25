@@ -28,6 +28,32 @@ owner: gc-industries
 mesh:
   enabled: true
 
+# The application's public address.
+#
+# This is the whole of what superheros knows about being on the internet: a
+# path, and which of its five services answers it. Endurance renders it into a
+# VirtualService bound to the platform's ingress Gateway
+# (istio-system/endurance-gateway) and ArgoCD applies it — so the app is at
+# http://localhost:8080/ with nothing running in a terminal.
+#
+# The route is here and not in the platform on purpose. The pre-Endurance
+# superhero chart had /api/catalog written into a gateway route, which meant the
+# platform could serve exactly one application. An application asks; the
+# platform provides a door and does not look through it.
+#
+# Only frontend is exposed. catalog, orders, inventory and payment are called by
+# frontend inside the mesh and by nothing outside it — exposing them too would
+# be a security decision made by omission.
+#
+# `port` is omitted deliberately: it is read from the named service, so it
+# cannot fall out of step with it. `path: /` is the root of the platform's one
+# host; the platform's own dashboards keep /argocd, /kiali, /grafana,
+# /prometheus and /alertmanager, and Endurance refuses a route that claims one.
+route:
+  enabled: true
+  path: /grafana
+  service: frontend
+
 # Who hears about this application, and when.
 #
 # The stages split across the two halves of the platform, and the split is the

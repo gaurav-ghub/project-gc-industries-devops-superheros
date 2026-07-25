@@ -21,10 +21,24 @@ import (
 )
 
 // chartValues is the shape consumed by charts/app.
+//
+// Route is omitted entirely when the application asked for none, so an
+// application that never wanted a URL renders exactly the manifests it always
+// did — which is what lets the Phase 1–9 regeneration proof keep working.
 type chartValues struct {
 	App      map[string]string `yaml:"app"`
 	Mesh     spec.Mesh         `yaml:"mesh,omitempty"`
+	Route    *spec.Route       `yaml:"route,omitempty"`
 	Services []spec.Service    `yaml:"services"`
+}
+
+// routeValues returns the route to write into the values file, or nil.
+func routeValues(app spec.App) *spec.Route {
+	if !app.Route.Enabled {
+		return nil
+	}
+	r := app.Route
+	return &r
 }
 
 // argoAppTmpl is a multi-source ArgoCD Application: source 1 is the generic
@@ -184,6 +198,7 @@ func writeAppFiles(dir string, app *spec.App) ([]string, error) {
 	vals, err := yaml.Marshal(chartValues{
 		App:      map[string]string{"name": app.Name},
 		Mesh:     app.Mesh,
+		Route:    routeValues(*app),
 		Services: app.Services,
 	})
 	if err != nil {

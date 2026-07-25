@@ -1,0 +1,63 @@
+###############################################################################
+# Kiali values — Endurance
+#
+# Kiali is the mesh's console: it reads Istio's configuration and Prometheus's
+# metrics and draws what is actually talking to what. On this platform that is
+# the only place a canary traffic split is visible as a picture rather than as a
+# percentage in a YAML file.
+#
+# Author: Gaurav Chaurasia
+###############################################################################
+
+auth:
+  # Anonymous, and deliberately.
+  #
+  # Kiali's default in-cluster strategy is `token`, which means pasting a
+  # ServiceAccount token into a login form — a manual step, on a single-user
+  # kind cluster that exists on one laptop and is deleted at the end of the
+  # demo. This phase is called "no manual port-forward"; swapping one manual
+  # step for another would be missing the point.
+  #
+  # This is a kind-only choice. The cluster is not reachable from anywhere but
+  # the host that created it (see kind-config.yaml: the ports are published to
+  # localhost), and Endurance does not target a shared cluster. A hosted target
+  # would have to revisit this before anything else.
+  strategy: anonymous
+
+deployment:
+  # The route comes from the platform's Istio Gateway (see
+  # ../manifests/dashboards.yaml), not from a Kubernetes Ingress. There is one
+  # front door and it is the mesh's.
+  ingress:
+    enabled: false
+  view_only_mode: false
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 512Mi
+
+server:
+  # Kiali builds its own asset links from this, which is what lets /kiali be
+  # routed straight through with no URI rewrite. The number is repeated in
+  # ../versions.yaml and in the gateway route; install.sh asserts they agree.
+  web_root: /kiali
+
+external_services:
+  istio:
+    root_namespace: istio-system
+
+  # kube-prometheus-stack's Prometheus, in the monitoring namespace. Without
+  # this Kiali draws the graph with no traffic on it — it knows the shape of
+  # the mesh from Istio and the rates from Prometheus.
+  prometheus:
+    url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+
+  # Grafana gets two URLs because Kiali needs both: one it calls itself, and one
+  # it puts in a link for the browser. The browser cannot resolve a cluster DNS
+  # name, and Kiali cannot reach localhost:8080 from inside a pod.
+  grafana:
+    enabled: true
+    internal_url: http://prometheus-grafana.monitoring.svc.cluster.local
+    external_url: http://localhost:8080/grafana

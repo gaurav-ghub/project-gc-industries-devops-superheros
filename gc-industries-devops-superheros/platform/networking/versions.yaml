@@ -31,10 +31,16 @@ istio:
   # Istio 1.22.
   version: "1.23.1"
 
-# Kiali is NOT installed by this platform. There is no platform/networking/kiali
-# module and nothing in the bootstrap references one; the number below was
-# aspirational. It is kept, explicitly labelled, as the version to install if
-# and when a Kiali module is added — not as a claim that one exists.
-kiali:
-  installed: false
-  version: "2.17.0"
+# Kiali moved out of this file in Phase 10.
+#
+# It used to be declared here, marked `installed: false`, as the version to use
+# if a Kiali module were ever written. One was: platform/access/, which installs
+# it alongside the ingress Gateway and the platform's routes, because Kiali is
+# something you reach rather than something the mesh needs. Its version lives in
+# platform/access/versions.yaml, which is the file its installer reads —
+# declaring it in two places is how the Istio number came to be wrong for
+# months.
+
+# The ingress gateway's host-facing ports are not here either. They are the
+# nodePorts in istio/kind-gateway.yaml, paired with the hostPorts in
+# kind-config.yaml; a Go test reads both files and fails if they disagree.

@@ -28,6 +28,22 @@ app:
 mesh:
   enabled: false
 
+# The application's public address, if it wants one.
+#
+# Off by default: most services in a multi-service application are internal, and
+# exposing them by default would be a security decision made by omission. An
+# application asks for a route in its own spec and Endurance renders it here —
+# the chart never decides what an application's URL looks like.
+#
+#   route:
+#     enabled: true
+#     gateway: istio-system/endurance-gateway   # the platform's one Gateway
+#     path: /                                   # a prefix on the platform's host
+#     service: frontend                         # which service answers it
+#     port: 80
+route:
+  enabled: false
+
 # Fallbacks for a service that declares no resources/security of its own.
 #
 # Endurance-generated values files always spell both blocks out per service, so

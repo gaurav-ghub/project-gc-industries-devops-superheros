@@ -1,0 +1,56 @@
+{{/*
+The application's front-door route.
+
+One VirtualService, bound to the platform's ingress Gateway, sending one path
+prefix to one of the application's services. Rendered only when the application
+asked for it — `route.enabled` in specs/<app>.yaml — because most services in a
+multi-service application are internal and exposing them all would be a security
+decision made by omission.
+
+This is the ONLY place charts/app touches the outside world, and the shape is
+deliberate. Everything the platform knows about an application's URL is in the
+values file the application generated: the path, the service, the port, and the
+name of the Gateway to bind to. The chart hardcodes none of it. The
+pre-Endurance superhero chart had `/api/catalog` written into a gateway route,
+which is the reason the platform could only ever serve that one application.
+
+Note the contrast with istio.yaml next door, and that both are correct:
+
+  istio.yaml   canary weights — bound to NO gateway, so the rule is enforced
+               mesh-internally by the sidecar of whatever pod is calling. The
+               platform needs to know nothing about the app's URLs for canary
+               to work.
+
+  route.yaml   the public address — bound to the platform's gateway, and only
+               ever the one path the application named.
+
+A route needs no sidecar and therefore no `mesh.enabled`: the ingress gateway
+does the routing, and it is part of the platform whether the application's pods
+are in the mesh or not.
+*/}}
+{{- if .Values.route }}
+{{- if .Values.route.enabled }}
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ .Values.app.name }}-route
+  labels:
+    app.kubernetes.io/name: {{ .Values.app.name }}-route
+    app.kubernetes.io/part-of: {{ .Values.app.name }}
+    app.kubernetes.io/managed-by: endurance
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - {{ .Values.route.gateway }}
+  http:
+    - match:
+        - uri:
+            prefix: {{ .Values.route.path | quote }}
+      route:
+        - destination:
+            host: {{ .Values.route.service }}
+            port:
+              number: {{ .Values.route.port }}
+{{- end }}
+{{- end }}

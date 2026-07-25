@@ -63,6 +63,16 @@ func Render(app spec.App) []Resource {
 			})
 		}
 	}
+	// The application's public route, if it asked for one. Projected for the
+	// same reason as the canary objects: the projection is what
+	// TestProjectionMatchesHelmTemplate compares against the real chart, so an
+	// object nobody projects is an object nothing pins.
+	if a.Route.Enabled {
+		name := a.Name + "-route"
+		out = append(out, Resource{
+			Kind: "VirtualService", Name: name, Namespace: a.Namespace, Object: routeVirtualService(a),
+		})
+	}
 	return out
 }
 
@@ -251,6 +261,44 @@ func virtualService(app spec.App, s spec.Service) map[string]any {
 		"spec": map[string]any{
 			"hosts": []any{s.Name},
 			"http":  []any{map[string]any{"route": routes}},
+		},
+	}
+}
+
+// routeVirtualService is the application's front door: one path prefix on the
+// platform's Gateway, sent to one of the application's services.
+//
+// Its labels are not the per-service ones the rest of this file builds — there
+// is no service that owns it. It belongs to the application, which is what
+// `app.kubernetes.io/part-of` says.
+func routeVirtualService(app spec.App) map[string]any {
+	name := app.Name + "-route"
+	return map[string]any{
+		"apiVersion": "networking.istio.io/v1",
+		"kind":       "VirtualService",
+		"metadata": map[string]any{
+			"name":      name,
+			"namespace": app.Namespace,
+			"labels": map[string]any{
+				"app.kubernetes.io/name":       name,
+				"app.kubernetes.io/part-of":    app.Name,
+				"app.kubernetes.io/managed-by": "endurance",
+			},
+		},
+		"spec": map[string]any{
+			"hosts":    []any{"*"},
+			"gateways": []any{app.Route.Gateway},
+			"http": []any{map[string]any{
+				"match": []any{map[string]any{
+					"uri": map[string]any{"prefix": app.Route.Path},
+				}},
+				"route": []any{map[string]any{
+					"destination": map[string]any{
+						"host": app.Route.Service,
+						"port": map[string]any{"number": app.Route.Port},
+					},
+				}},
+			}},
 		},
 	}
 }

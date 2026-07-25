@@ -41,6 +41,10 @@ var components = []component{
 	{"ai alert enrichment", "monitoring", "app=superhero-ai-alertmanager"},
 	{"argocd", "argocd", "app.kubernetes.io/name=argocd-server"},
 	{"kyverno", "kyverno", "app.kubernetes.io/part-of=kyverno"},
+	// Installed by platform/access since Phase 10. Reported as `not installed`
+	// on a platform that predates it, which is the honest answer and not a
+	// failure — same rule as every other component here.
+	{"kiali", "istio-system", "app.kubernetes.io/name=kiali"},
 }
 
 // A kubectlFunc runs kubectl and returns its combined output. Tests replace it.
@@ -135,13 +139,13 @@ func (c component) check(kube kubectlFunc) render.Check {
 		// kubectl reports it as an error. It is not one.
 		return render.Check{Name: c.name, State: render.StatePending, Note: "not installed"}
 	}
-	pods := parsePods(out)
+	pods := ParsePodTable(out)
 	if len(pods) == 0 {
 		return render.Check{Name: c.name, State: render.StatePending, Note: "not installed"}
 	}
 	ready := 0
 	for _, p := range pods {
-		if p.ready {
+		if p.Ready {
 			ready++
 		}
 	}
@@ -153,33 +157,38 @@ func (c component) check(kube kubectlFunc) render.Check {
 		return render.Check{Name: c.name, State: render.StateWarn, Note: note}
 	default:
 		return render.Check{Name: c.name, State: render.StateFailed,
-			Note: note + " · " + pods[0].status}
+			Note: note + " · " + pods[0].Status}
 	}
 }
 
-// A podLine is one row of `kubectl get pods --no-headers`.
-type podLine struct {
-	name   string
-	status string
-	ready  bool
+// A PodState is one row of `kubectl get pods --no-headers`.
+//
+// Exported because the application half of the CLI reads the same table for the
+// success screen, and "what counts as ready" is a rule this platform has been
+// deliberate about since Phase 8. Two implementations of it would be two
+// answers, and the one that mattered would be whichever a screenshot came from.
+type PodState struct {
+	Name   string
+	Status string
+	Ready  bool
 }
 
-// parsePods reads kubectl's table: NAME READY STATUS RESTARTS AGE.
+// ParsePodTable reads kubectl's table: NAME READY STATUS RESTARTS AGE.
 //
 // A pod counts as ready only when its READY column says every container is up
 // *and* its status is Running. Both halves matter: a terminating pod can read
 // 2/2, and a pod that is Running with 1/2 containers is not serving anything.
 // This is the same rule the Phase 8 success screen was built around — only an
 // observed-healthy thing earns a ✓.
-func parsePods(out string) []podLine {
-	var pods []podLine
+func ParsePodTable(out string) []PodState {
+	var pods []PodState
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 3 {
 			continue
 		}
-		p := podLine{name: f[0], status: f[2]}
-		p.ready = p.status == "Running" && allContainersReady(f[1])
+		p := PodState{Name: f[0], Status: f[2]}
+		p.Ready = p.Status == "Running" && allContainersReady(f[1])
 		pods = append(pods, p)
 	}
 	return pods

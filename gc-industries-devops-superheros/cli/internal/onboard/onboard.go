@@ -110,8 +110,11 @@ func runFromFile(opts Options) error {
 // finish validates the app, writes the GitOps files, optionally commits, and
 // prints the end-of-run dashboard. Shared by the interactive and file paths.
 func finish(opts Options, app spec.App) error {
+	// The verdict is the returned error, rendered once, by main. Printing it
+	// here as well said the same sentence twice in two voices — the fault Phase
+	// 9 recorded and fixed for `doctor` and `status`, still here because nothing
+	// tripped it routinely until route validation started refusing paths.
 	if err := app.Validate(); err != nil {
-		render.Error(err.Error())
 		return err
 	}
 
@@ -146,7 +149,6 @@ func finish(opts Options, app spec.App) error {
 	}
 	written, err := gitops.Generate(opts.Root, app, opts.GitopsRepo, prefix)
 	if err != nil {
-		render.Error(err.Error())
 		return err
 	}
 	for _, w := range written {

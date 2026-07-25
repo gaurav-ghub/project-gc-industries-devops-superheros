@@ -18,7 +18,6 @@ tempo:
   repository: grafana
   version: "1.24.4"
 
-kiali:
-  chart: kiali-server
-  repository: kiali
-  version: "2.16.0"
+# Kiali is installed by platform/access/, not by this module, and its version is
+# declared in platform/access/versions.yaml — the file its installer reads. This
+# entry was a third opinion about a component nothing installed.

@@ -49,10 +49,12 @@ const warningPrefix = "warning:"
 // Paths inside the platform repo. They are relative and joined against the
 // discovered root, so every command works from anywhere in the tree.
 const (
-	scriptsDir    = "platform/scripts"
-	clusterScript = scriptsDir + "/cluster.sh"
-	destroyScript = scriptsDir + "/destroy-kind.sh"
-	versionFile   = "platform/lib/version.sh"
+	scriptsDir     = "platform/scripts"
+	clusterScript  = scriptsDir + "/cluster.sh"
+	destroyScript  = scriptsDir + "/destroy-kind.sh"
+	versionFile    = "platform/lib/version.sh"
+	accessVersions = "platform/access/versions.yaml"
+	gatewayFile    = "platform/access/manifests/gateway.yaml"
 )
 
 // A Module is one link in the bootstrap chain: the step the user sees and the
@@ -69,14 +71,17 @@ type Module struct {
 }
 
 // Chain is the bootstrap order: cluster → Istio → monitoring → AI → GitOps →
-// security.
+// security → access.
 //
-// Two of those orderings are load-bearing and are not to be shuffled for
+// Three of those orderings are load-bearing and are not to be shuffled for
 // tidiness. AI alert enrichment installs into the monitoring namespace and is
 // fed by an Alertmanager route that ships in the monitoring module's values, so
 // monitoring goes first. Security registers its ClusterPolicies as an ArgoCD
-// Application, so GitOps goes before it. bootstrap-kind.sh calls the same
-// modules in the same order for the same reasons.
+// Application, so GitOps goes before it. And access goes last, because every
+// route it applies points at a Service an earlier module created — a route to a
+// Service that does not exist yet is a 503 the first time anybody looks.
+// bootstrap-kind.sh calls the same modules in the same order for the same
+// reasons, and TestChainMatchesTheBashModules fails if the two ever disagree.
 var Chain = []Module{
 	{"Creating the kind cluster", "Kind cluster ready", clusterScript},
 	{"Installing Istio", "Istio installed", "platform/networking/install.sh"},
@@ -84,6 +89,7 @@ var Chain = []Module{
 	{"Installing AI alert enrichment", "AI alert enrichment installed", "platform/ai/install.sh"},
 	{"Installing ArgoCD", "ArgoCD installed", "platform/gitops/install.sh"},
 	{"Installing Kyverno policies", "Kyverno policies installed", "platform/security/install.sh"},
+	{"Opening the access layer", "Access layer ready", "platform/access/install.sh"},
 }
 
 // FindRoot returns the platform repo root.

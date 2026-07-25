@@ -1,0 +1,97 @@
+###############################################################################
+# File: dashboards.yaml
+#
+# Description:
+# The platform's own routes on the ingress Gateway. One VirtualService, one
+# match per dashboard, all under the single host the gateway serves.
+#
+#   /argocd        argocd-server        (argocd)
+#   /kiali         kiali                (istio-system)
+#   /grafana       prometheus-grafana   (monitoring)
+#   /prometheus    prometheus           (monitoring)
+#   /alertmanager  alertmanager         (monitoring)
+#
+# Each of those components is configured to serve from its own subpath rather
+# than being rewritten into one: a UI served at / and reached at /grafana builds
+# absolute links to /public/... and breaks on the first stylesheet. So Grafana
+# gets serve_from_sub_path, ArgoCD gets rootpath/basehref, and Prometheus and
+# Alertmanager get routePrefix — all in their own modules' values, because the
+# component that renders a link is the component that has to know its own
+# address. Nothing here rewrites a URI; the path the browser sends is the path
+# the backend receives.
+#
+# ORDERING, which is the one sharp edge in this file:
+# Istio merges every VirtualService bound to the same gateway and host into one
+# route table, and across resources the order is the order they were created.
+# An application's route may be a bare `/`, which matches everything — so it has
+# to be evaluated after these. It is, because this file is applied during
+# bootstrap and an application's route arrives later, when ArgoCD syncs it.
+# `endurance urls` probes every address for exactly this reason: if the ordering
+# ever does go wrong, the command that prints the URLs is the command that says
+# which of them stopped answering.
+#
+# Author: Gaurav Chaurasia
+###############################################################################
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: endurance-dashboards
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: endurance-dashboards
+    app.kubernetes.io/part-of: endurance
+    app.kubernetes.io/managed-by: endurance
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - endurance-gateway
+  http:
+    # ArgoCD. Served over HTTP because the gateway terminates the connection and
+    # argocd-server runs with server.insecure — see platform/gitops/argocd/values.yaml.
+    - match:
+        - uri:
+            prefix: /argocd
+      route:
+        - destination:
+            host: argocd-server.argocd.svc.cluster.local
+            port:
+              number: 80
+
+    # Kiali. Installed by this module; serves from web_root /kiali.
+    - match:
+        - uri:
+            prefix: /kiali
+      route:
+        - destination:
+            host: kiali.istio-system.svc.cluster.local
+            port:
+              number: 20001
+
+    # Grafana, from kube-prometheus-stack.
+    - match:
+        - uri:
+            prefix: /grafana
+      route:
+        - destination:
+            host: prometheus-grafana.monitoring.svc.cluster.local
+            port:
+              number: 80
+
+    - match:
+        - uri:
+            prefix: /prometheus
+      route:
+        - destination:
+            host: prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local
+            port:
+              number: 9090
+
+    - match:
+        - uri:
+            prefix: /alertmanager
+      route:
+        - destination:
+            host: prometheus-kube-prometheus-alertmanager.monitoring.svc.cluster.local
+            port:
+              number: 9093

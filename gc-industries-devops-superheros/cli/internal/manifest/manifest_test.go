@@ -46,6 +46,15 @@ func canarySample() spec.App {
 	return app
 }
 
+// routedSample is the shape Phase 10 added: an application that asked for a
+// public address, which is the only thing charts/app renders that binds to the
+// platform's ingress Gateway.
+func routedSample() spec.App {
+	app := sample()
+	app.Route = spec.Route{Enabled: true, Path: "/", Service: "frontend"}
+	return app
+}
+
 // A canary service renders one Deployment per version but still exactly one
 // Service — if it rendered one Service per version there would be nothing for
 // Istio to split, since each version would have its own address.
@@ -210,6 +219,7 @@ func TestProjectionMatchesHelmTemplate(t *testing.T) {
 	}{
 		{"plain", sample()},
 		{"canary", canarySample()},
+		{"routed", routedSample()},
 	} {
 		t.Run(tc.name, func(t *testing.T) { assertChartConformance(t, tc.app) })
 	}
@@ -228,6 +238,9 @@ func assertChartConformance(t *testing.T, app spec.App) {
 		"app":      map[string]any{"name": app.Name},
 		"mesh":     map[string]any{"enabled": app.Mesh.Enabled},
 		"services": app.Services,
+	}
+	if app.Route.Enabled {
+		values["route"] = app.Route
 	}
 	data, err := yaml.Marshal(values)
 	if err != nil {

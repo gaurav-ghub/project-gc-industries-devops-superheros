@@ -1,0 +1,47 @@
+###############################################################################
+# File: gateway.yaml
+#
+# Description:
+# The platform's one ingress Gateway. Everything Endurance exposes — its own
+# dashboards and every application that asks for a route — binds to this.
+#
+# Why one Gateway and not one per thing:
+# A Gateway is a description of a listener on the ingress proxy, not a route.
+# Two Gateways claiming port 80 on the same proxy is a configuration conflict,
+# not two front doors. So the platform owns exactly one, and routing is done
+# with VirtualServices that bind to it — the platform's own in dashboards.yaml,
+# an application's rendered by charts/app from that application's spec.
+#
+# hosts: "*" because the host is `localhost` and only ever localhost. Naming
+# hostnames here would mean the developer editing /etc/hosts, which means sudo,
+# which is exactly the manual step this phase exists to delete. One host, many
+# paths.
+#
+# The name and namespace are a contract: charts/app writes
+# `istio-system/endurance-gateway` into an application's VirtualService, and
+# cli/internal/spec pins the same string. A Go test reads this file and fails if
+# the three stop agreeing.
+#
+# Author: Gaurav Chaurasia
+###############################################################################
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: endurance-gateway
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: endurance-gateway
+    app.kubernetes.io/part-of: endurance
+    app.kubernetes.io/managed-by: endurance
+spec:
+  selector:
+    # The demo profile's ingress gateway Deployment carries this label. It is
+    # the pod, not the Service, that a Gateway selects.
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*"

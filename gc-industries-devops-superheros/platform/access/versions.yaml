@@ -1,0 +1,21 @@
+# Versions installed by the access module.
+#
+# Read by install.sh, which passes the chart version to helm and refuses to
+# install an unpinned one — the same bargain platform/networking/versions.yaml
+# and platform/ai/versions.yaml strike. A version file nobody reads is
+# documentation, and documentation that is wrong is worse than none.
+#
+# Kiali used to be declared in two other files and installed by neither:
+# platform/networking/versions.yaml carried an aspirational 2.17.0 marked
+# `installed: false`, and platform/monitoring/versions.yaml carried a
+# kiali-server chart entry for a module that did not exist. Both now point here.
+kiali:
+  chart: kiali-server
+  repository: kiali
+  repository_url: https://kiali.org/helm-charts
+  # Chart and app version move together in Kiali 2.x, so this one number is both.
+  version: "2.17.0"
+  namespace: istio-system
+  # Kiali serves from this subpath (server.web_root in kiali/values.yaml) and the
+  # gateway routes /kiali to it unrewritten.
+  web_root: /kiali
