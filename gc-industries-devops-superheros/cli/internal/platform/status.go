@@ -112,6 +112,54 @@ func Status(opts StatusOptions) error {
 	return statusVerdict(checks)
 }
 
+// A Health is the same question Status answers, without printing it.
+//
+// It exists for `endurance init`, which has to decide whether to spend ten
+// minutes running a bootstrap. Asking the user "is your platform already
+// installed?" would be asking them a question the tool can answer itself, and
+// re-running seven modules against a healthy cluster to be safe is ten minutes
+// of a first-run experience spent on nothing.
+type Health struct {
+	Reachable bool
+	Ready     int
+	Total     int
+}
+
+// Complete reports whether every component this build knows about is up.
+func (h Health) Complete() bool { return h.Reachable && h.Total > 0 && h.Ready == h.Total }
+
+// CheckHealth asks the cluster about every component and says nothing.
+func CheckHealth(root string) Health { return checkHealth(resolveStatusKubectl(nil), root) }
+
+func checkHealth(kube kubectlFunc, root string) Health {
+	h := Health{Total: len(components)}
+	if kube == nil {
+		return h
+	}
+	if _, err := clusterNodes(kube, ContextName(root)); err != nil {
+		return h
+	}
+	h.Reachable = true
+	for _, c := range components {
+		if c.check(kube).State == render.StateReady {
+			h.Ready++
+		}
+	}
+	return h
+}
+
+// resolveStatusKubectl returns the kubectl to use, or nil when there is none —
+// which is simply another way of not knowing, and is what CheckHealth reports.
+func resolveStatusKubectl(k kubectlFunc) kubectlFunc {
+	if k != nil {
+		return k
+	}
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		return nil
+	}
+	return realKubectl
+}
+
 // clusterNodes counts Ready nodes, and doubles as the reachability probe: if
 // the API server does not answer, nothing below it is worth asking about.
 func clusterNodes(kube kubectlFunc, context string) (int, error) {

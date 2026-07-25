@@ -74,13 +74,19 @@ var tools = []tool{
 // DoctorOptions configures a preflight run.
 type DoctorOptions struct {
 	Root string // platform repo root ("" = discover)
+
+	// NoBanner suppresses the product banner, for a caller that has already
+	// drawn one — `endurance init` runs the preflight as its first phase.
+	NoBanner bool
 }
 
 // Doctor runs the preflight and prints it. It returns an error when a required
 // tool is missing or unusable, so `endurance doctor` exits non-zero and can be
 // used as a gate in a script.
 func Doctor(opts DoctorOptions) error {
-	render.Banner(version.Current)
+	if !opts.NoBanner {
+		render.Banner(version.Current)
+	}
 	root, err := FindRoot(opts.Root)
 	if err != nil {
 		render.Section("Preflight")

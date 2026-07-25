@@ -136,6 +136,10 @@ func Destroy(opts DestroyOptions) error {
 	}, []string{
 		"endurance bootstrap — stand the platform up again",
 		"endurance doctor — check the tools first",
+		// The two removals are easy to confuse and expensive both ways round, so
+		// each command names the other. This one took the cluster; the binary is
+		// still here.
+		"endurance uninstall — remove the CLI itself (this removed the cluster)",
 	})
 	return nil
 }

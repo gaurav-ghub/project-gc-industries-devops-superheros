@@ -29,13 +29,19 @@ type Options struct {
 	PolicyDir  string // override the Kyverno policy directory
 	SkipPolicy bool   // break glass: report policy violations but do not block
 	NoNotify   bool   // do not send the CLI notification
+
+	// NoBanner suppresses the product banner, for a caller that has already
+	// drawn one. `endurance init` onboards as one phase of a longer run.
+	NoBanner bool
 }
 
 // Run drives onboarding and writes the GitOps files. If opts.From is set it
 // skips the interactive form and loads the spec from a YAML file (used for
 // migration and automation); otherwise it prompts via huh.
 func Run(opts Options) error {
-	render.Banner(version.Current)
+	if !opts.NoBanner {
+		render.Banner(version.Current)
+	}
 	render.Section("Onboard an application")
 
 	if opts.From != "" {

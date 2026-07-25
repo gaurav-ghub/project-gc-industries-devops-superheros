@@ -33,4 +33,12 @@ package version
 //	        kubectl commands that fetch them. Narrow by construction: those two
 //	        and no others, and ENDURANCE_NO_CREDENTIALS=1 leaves them out of a
 //	        transcript that is going to be screenshotted
-const Current = "v0.9.1"
+//	v0.10.0 guided onboarding — `endurance init` sequences doctor, a handful of
+//	        prompts with defaults that work, a confirmation screen nothing
+//	        happens before, the bootstrap, the onboard and the deploy, and ends
+//	        on the real success screen. Plus the developer verbs that make the
+//	        platform usable without kubectl: `catalog list|get`, `logs`,
+//	        `metrics`, `enable`/`disable ai|slack`, `config list` (presence,
+//	        never values) and `uninstall`, which removes the CLI and not the
+//	        cluster
+const Current = "v0.10.0"

@@ -25,6 +25,11 @@ type BootstrapOptions struct {
 	SkipPreflight bool   // break glass: run the chain without checking the tools
 	DryRun        bool   // print the chain and the commands, run nothing
 
+	// NoBanner suppresses the product banner, for a caller that has already
+	// drawn one. `endurance init` runs a bootstrap as one phase of a longer
+	// run, and two ring ships in one transcript reads as two commands.
+	NoBanner bool
+
 	// The four edges of the operating system this command touches: a
 	// subprocess, the tools on PATH, the network, and the cluster. Tests
 	// replace them; the CLI never sets any of them.
@@ -36,7 +41,9 @@ type BootstrapOptions struct {
 
 // Bootstrap stands the platform up and returns an error if any module failed.
 func Bootstrap(opts BootstrapOptions) error {
-	render.Banner(version.Current)
+	if !opts.NoBanner {
+		render.Banner(version.Current)
+	}
 
 	root, err := FindRoot(opts.Root)
 	if err != nil {

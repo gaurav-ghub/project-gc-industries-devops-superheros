@@ -281,6 +281,14 @@ func hints(app spec.App) []render.Hint {
 	}
 	svc := app.Services[0].Name
 	return append(out,
+		// Phase 11 gave the platform its own verb for this, so it is offered
+		// first — and the kubectl form stays underneath, because that is what a
+		// developer types at 2am and a tool that hides the cluster is a tool
+		// people work around.
+		render.Hint{
+			Command: "endurance logs " + app.Name + " --service " + svc,
+			Note:    "its logs",
+		},
 		render.Hint{
 			Command: "endurance release " + app.Name + " --service " + svc + " --tag <tag>",
 			Note:    "promote one service",

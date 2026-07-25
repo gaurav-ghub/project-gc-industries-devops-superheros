@@ -51,7 +51,7 @@ mesh:
 # /prometheus and /alertmanager, and Endurance refuses a route that claims one.
 route:
   enabled: true
-  path: /grafana
+  path: /
   service: frontend
 
 # Who hears about this application, and when.

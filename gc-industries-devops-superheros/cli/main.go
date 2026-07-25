@@ -18,8 +18,12 @@ import (
 	"strings"
 
 	"github.com/gc-ghub/endurance/internal/canary"
+	"github.com/gc-ghub/endurance/internal/catalog"
+	"github.com/gc-ghub/endurance/internal/features"
 	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/initcmd"
 	"github.com/gc-ghub/endurance/internal/notify"
+	"github.com/gc-ghub/endurance/internal/observe"
 	"github.com/gc-ghub/endurance/internal/onboard"
 	"github.com/gc-ghub/endurance/internal/platform"
 	"github.com/gc-ghub/endurance/internal/policy"
@@ -42,6 +46,10 @@ func main() {
 
 	var err error
 	switch cmd {
+	// The guided first run, which is a sequence of the two halves below.
+	case "init":
+		err = cmdInit(args)
+
 	// The platform half: these drive the bash modules under platform/.
 	case "bootstrap":
 		err = cmdBootstrap(args)
@@ -49,12 +57,26 @@ func main() {
 		err = cmdDoctor(args)
 	case "destroy":
 		err = cmdDestroy(args)
+	case "uninstall":
+		err = cmdUninstall(args)
 	case "urls":
 		err = cmdUrls(args)
+	case "enable":
+		err = cmdFeature(args, true)
+	case "disable":
+		err = cmdFeature(args, false)
+	case "config":
+		err = cmdConfig(args)
 
 	// The application half: these only write git.
 	case "onboard":
 		err = cmdOnboard(args)
+	case "catalog":
+		err = cmdCatalog(args)
+	case "logs":
+		err = cmdLogs(args)
+	case "metrics":
+		err = cmdMetrics(args)
 	case "release":
 		err = cmdRelease(args)
 	case "canary":
@@ -80,6 +102,40 @@ func main() {
 		render.Error(err.Error())
 		os.Exit(1)
 	}
+}
+
+// cmdInit is the guided first run: welcome → doctor → questions → the
+// confirmation screen → bootstrap → onboard → deploy → success screen.
+//
+// Every flag here is a question it does not have to ask. Supplying --name and
+// --yes is the non-interactive form, which is what the runbook and the tests
+// use; --dry-run prints the plan and stops, which is the cheapest way to see
+// what a run would do.
+func cmdInit(args []string) error {
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	name := fs.String("name", "", "application name (default: asked, or "+initcmd.DefaultName+")")
+	image := fs.String("image", "", "container image, with its registry (default: "+initcmd.DefaultImage+")")
+	tag := fs.String("tag", "", "image tag (default: "+initcmd.DefaultTag+"; `latest` is refused by the policy gate)")
+	owner := fs.String("owner", "", "owning team (default: git config user.name)")
+	repo := fs.String("app-repo", "", "the application's own source repo, recorded in the registry")
+	path := fs.String("path", "", "URL path on the platform's host (default: / if free, else /<app>)")
+	port := fs.Int("port", 0, "container port (default: "+fmt.Sprint(initcmd.DefaultPort)+")")
+	noRoute := fs.Bool("no-route", false, "do not give the application a URL")
+	yes := fs.Bool("yes", false, "accept the plan without confirming")
+	dryRun := fs.Bool("dry-run", false, "print the plan and stop")
+	skipBootstrap := fs.Bool("skip-bootstrap", false, "the platform is already up; do not check")
+	noWait := fs.Bool("no-wait", false, "do not wait for ArgoCD to sync")
+	timeout := fs.Duration("timeout", initcmd.DefaultTimeout, "how long to wait for ArgoCD")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return initcmd.Run(initcmd.Options{
+		Root: *root, Name: *name, Image: *image, Tag: *tag, Owner: *owner,
+		Repo: *repo, Path: *path, Port: *port, NoRoute: *noRoute,
+		Yes: *yes, DryRun: *dryRun, SkipBootstrap: *skipBootstrap,
+		NoWait: *noWait, Timeout: *timeout,
+	})
 }
 
 // The platform commands. --root is optional everywhere: they find the platform
@@ -120,6 +176,69 @@ func cmdDestroy(args []string) error {
 		return err
 	}
 	return platform.Destroy(platform.DestroyOptions{Root: *root, Yes: *yes})
+}
+
+// cmdUninstall removes the CLI binary. Distinct from destroy, which removes the
+// cluster — the two are easy to confuse and expensive both ways round, so each
+// command's output names the other.
+func cmdUninstall(args []string) error {
+	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	yes := fs.Bool("yes", false, "do not ask for confirmation")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return platform.Uninstall(platform.UninstallOptions{Root: *root, Yes: *yes})
+}
+
+// cmdFeature is `endurance enable ai|slack` and `endurance disable ai|slack`.
+//
+// Both capture credentials, and neither ever prints one back — not at the
+// prompt, not in a confirmation and not in an error. See internal/features for
+// why that is stricter than the rule `endurance urls` follows for ArgoCD's and
+// Grafana's own logins.
+func cmdFeature(args []string, enable bool) error {
+	verb := "disable"
+	if enable {
+		verb = "enable"
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("usage: endurance %s %s", verb, strings.Join(features.Names(), "|"))
+	}
+	name, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet(verb, flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	yes := fs.Bool("yes", false, "disable: do not ask for confirmation")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	opts := features.Options{Root: *root, Yes: *yes}
+	if enable {
+		return features.Enable(name, opts)
+	}
+	return features.Disable(name, opts)
+}
+
+// cmdConfig is `endurance config list`: which optional features are on, and
+// whether a credential is present. Presence, never values.
+func cmdConfig(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: endurance config list")
+	}
+	sub, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet("config", flag.ExitOnError)
+	root := fs.String("root", "", "platform repo root (default: auto-detect)")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	switch sub {
+	case "list", "ls":
+		return features.ConfigList(features.ConfigOptions{Root: *root})
+	default:
+		return fmt.Errorf("unknown config subcommand %q — use list", sub)
+	}
 }
 
 // cmdUrls prints where the platform is — and with --check, whether it is
@@ -424,24 +543,77 @@ func policyCheck(root, dir, name string) error {
 	return nil
 }
 
+// cmdCatalog is the registry as a developer asks about it: `catalog list` is
+// every registered application, `catalog get <app>` is one of them in detail.
+//
+// It is the rename of `list` and `status <app>`, and both of those still work —
+// see internal/catalog for why they were kept rather than retired. `catalog get`
+// and `status <app>` call the same function; there is one success screen on this
+// platform.
+func cmdCatalog(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: endurance catalog list | endurance catalog get <app>")
+	}
+	sub, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet("catalog", flag.ExitOnError)
+	root := fs.String("root", ".", "platform repo root")
+
+	switch sub {
+	case "list", "ls":
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		return catalog.List(*root)
+	case "get":
+		app, err := parsePositional(fs, rest, "endurance catalog get <app>")
+		if err != nil {
+			return err
+		}
+		render.Banner(version.Current)
+		return catalog.Get(*root, app)
+	default:
+		return fmt.Errorf("unknown catalog subcommand %q — use list or get", sub)
+	}
+}
+
+// cmdList is `catalog list` under its original name. Kept because every
+// transcript in test-evidence/ and every step in the manual runbook uses it.
 func cmdList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	root := fs.String("root", ".", "platform repo root")
 	_ = fs.Parse(args)
+	return catalog.List(*root)
+}
 
-	apps, err := gitops.List(*root)
+// cmdLogs and cmdMetrics are thin wrappers around kubectl that know what an
+// application is. They add the selector and print what kubectl printed.
+func cmdLogs(args []string) error {
+	fs := flag.NewFlagSet("logs", flag.ExitOnError)
+	root := fs.String("root", ".", "platform repo root")
+	service := fs.String("service", "", "one service (default: every service in the application)")
+	follow := fs.Bool("f", false, "follow the log stream")
+	tail := fs.Int("tail", 200, "lines of recent log to show (0 = all)")
+	since := fs.String("since", "", "only logs newer than this, e.g. 10m or 1h")
+	app, err := parsePositional(fs, args, "endurance logs <app> [--service <svc>] [-f]")
 	if err != nil {
 		return err
 	}
-	render.Section("Registered applications")
-	if len(apps) == 0 {
-		render.Info("none yet — run `endurance onboard`")
-		return nil
+	return observe.Logs(observe.LogOptions{
+		Root: *root, App: app, Service: *service,
+		Follow: *follow, Tail: *tail, Since: *since,
+	})
+}
+
+func cmdMetrics(args []string) error {
+	fs := flag.NewFlagSet("metrics", flag.ExitOnError)
+	root := fs.String("root", ".", "platform repo root")
+	service := fs.String("service", "", "one service (default: every service in the application)")
+	app, err := parsePositional(fs, args, "endurance metrics <app> [--service <svc>]")
+	if err != nil {
+		return err
 	}
-	for _, a := range apps {
-		render.Step(render.Value(a.Name) + "  " + fmt.Sprintf("ns=%s services=%d owner=%s", a.Namespace, len(a.Services), a.Owner))
-	}
-	return nil
+	return observe.Metrics(observe.MetricOptions{Root: *root, App: app, Service: *service})
 }
 
 // cmdStatus answers "is it up?" about whichever thing was named.
@@ -479,16 +651,31 @@ func usage() {
 	render.Banner(version.Current)
 	render.Print(`Usage: endurance <command> [flags]
 
+Start here:
+  init                Guided first run — stands the platform up, onboards an
+                      application and deploys it. Asks before it creates
+                      anything; --dry-run prints the plan and stops
+
 Platform commands (operator):
   doctor              Check this machine can stand the platform up
   bootstrap           Install the platform: cluster, Istio, monitoring, AI,
                       ArgoCD, Kyverno, access — one framed run
   status              Show whether the cluster and every component is healthy
   urls                Show where the platform is; --check asks each address
-  destroy             Delete the kind cluster and everything installed in it
+  enable ai|slack     Capture the credentials for an optional capability
+  disable ai|slack    Remove them
+  config list         Which capabilities are on, and whether a key is present
+                      (presence, never values)
+  destroy             Delete the kind CLUSTER and everything installed in it
+  uninstall           Remove the endurance BINARY. The cluster survives —
+                      destroy and uninstall are different removals
 
 Application commands (developer):
   onboard             Register and generate GitOps files for an application
+  catalog list        List registered applications
+  catalog get <app>   One application: services, pods, URLs, what to type next
+  logs <app>          Its logs, via kubectl; --service narrows to one
+  metrics <app>       Its CPU and memory, via kubectl top
   release <app>       Promote one service (or one canary version) to a new tag
   canary status <app> Show how each service's traffic is split
   canary set <app>    Change a canary service's traffic weights
@@ -497,18 +684,48 @@ Application commands (developer):
   notify test <app>   Send a test notification through this shell's webhook
   policy list         Show the Kyverno policies the platform enforces
   policy check <app>  Evaluate a registered application against them
-  list                List registered applications
-  status <app>        Show an application's services and pods
   version             Print the CLI version and every component's version
   help                Show this help
 
-Platform flags (doctor, bootstrap, status, urls, destroy, version):
+Retained aliases, from before the catalog verb existed. They are not deprecated
+and they are not going away — they are the older way to say the same thing:
+  list                = catalog list
+  status <app>        = catalog get <app>
+
+Init flags:
+  --name <app>          application name (asked for if not given)
+  --image <ref>         container image, with its registry
+  --tag <tag>           image tag (` + "`latest`" + ` is refused by the policy gate)
+  --port <n>            container port
+  --path </p>           URL path on the platform's host
+  --app-repo <url>      the application's own source repo, recorded only
+  --owner <team>        default: git config user.name
+  --no-route            do not give the application a URL
+  --yes                 accept the plan without confirming
+  --dry-run             print the plan and stop
+  --skip-bootstrap      the platform is already up; do not check
+  --no-wait             do not wait for ArgoCD to sync
+  --timeout <dur>       how long to wait for ArgoCD (default 6m)
+
+Platform flags (doctor, bootstrap, status, urls, destroy, uninstall, version):
   --root <dir>          platform repo root (default: found by walking up)
   --dry-run             bootstrap: print the chain and the commands, run nothing
   --skip-preflight      bootstrap: run the modules without checking the tools
   --check               urls: ask each address whether it answers
-  --yes                 destroy: do not ask for confirmation
+  --yes                 destroy / uninstall / disable: skip the confirmation
   --short               version: print only ` + "`endurance <version>`" + `
+
+Logs and metrics flags:
+  --service <name>      one service instead of the whole application
+  -f                    logs: follow the stream
+  --tail <n>            logs: lines of history (default 200, 0 = all)
+  --since <dur>         logs: only lines newer than this
+
+A credential Endurance captured is never printed back. ` + "`config list`" + ` reports
+whether one is present and nothing else. The two exceptions are deliberate and
+closed: ArgoCD's and Grafana's own admin logins, which the platform generates
+for itself and ` + "`urls`" + ` hands over — set ` + platform.EnvNoCredentials + `=1
+to keep them out of a transcript you are recording.
 
 Everything the platform exposes is on one host, path-based, through the Istio
 ingress gateway on the port kind-config.yaml publishes:
