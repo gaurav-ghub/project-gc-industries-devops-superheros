@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: 
+      targetRevision: HEAD
+      path: gc-industries-devops-superheros/charts/app
+      helm:
+        valueFiles:
+          - $values/gc-industries-devops-superheros/apps/demo/values.yaml
+    - repoURL: 
+      targetRevision: HEAD
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
