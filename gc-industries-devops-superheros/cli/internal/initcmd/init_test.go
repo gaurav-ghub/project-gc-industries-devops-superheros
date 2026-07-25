@@ -236,7 +236,12 @@ func TestADryRunWritesNothing(t *testing.T) {
 
 	opts := base(root, s)
 	opts.DryRun = true
-	opts.AskSecret = func(string, string, bool) (string, error) { return fakeKey, nil }
+	opts.Ask = func(a *Answers, d Answers) error {
+		*a = d
+		a.AI, a.OpenAIKey = true, fakeKey
+		a.Slack, a.SlackHook = true, fakeHook
+		return nil
+	}
 	if err := Run(opts); err != nil {
 		t.Fatal(err)
 	}
@@ -973,5 +978,174 @@ func TestAFailedApplyStopsAndSaysWhy(t *testing.T) {
 	}
 	if strings.Contains(got, "deployed and healthy") {
 		t.Errorf("the success screen printed after a failed apply:\n%s", got)
+	}
+}
+
+// TestOnboardIsToldWhichRepoArgoCDWatches.
+//
+// A regression, and an expensive one: init called onboard without a GitopsRepo,
+// so every Application it generated rendered `repoURL:` empty. Nothing noticed
+// until `kubectl apply` at the very end — after the files were written and
+// committed — and the API server's answer ("spec.sources[0].repoURL: Required
+// value") never reached the screen. The whole run failed on its last step.
+func TestOnboardIsToldWhichRepoArgoCDWatches(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	s := &spy{}
+	if err := Run(base(root, s)); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.onboarded) != 1 {
+		t.Fatalf("onboard was called %d times, want 1", len(s.onboarded))
+	}
+	if got := s.onboarded[0].GitopsRepo; got == "" {
+		t.Fatal("init onboarded without a GitOps repo URL — the generated " +
+			"Application would have an empty repoURL and be refused by the API server")
+	}
+}
+
+// TestTheGitopsRepoFlagWins — an explicit --gitops-repo is not second-guessed.
+func TestTheGitopsRepoFlagWins(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	const want = "https://github.com/someone-else/their-platform.git"
+	s := &spy{}
+	opts := base(root, s)
+	opts.GitopsRepo = want
+	if err := Run(opts); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.onboarded[0].GitopsRepo; got != want {
+		t.Errorf("GitopsRepo = %q, want %q", got, want)
+	}
+}
+
+// TestAnInvalidApplicationReportsTheFieldsAtFault.
+//
+// kubectl puts the headline on the first line and the diagnosis on the ones
+// after it. Reporting only the first line turns a fixable fault into "The
+// Application "demo" is invalid:" — a sentence that names nothing.
+func TestAnInvalidApplicationReportsTheFieldsAtFault(t *testing.T) {
+	root := sandbox(t)
+	buf := capture(t)
+
+	s := &spy{}
+	opts := base(root, s)
+	opts.Kubectl = func(args ...string) (string, error) {
+		return "The Application \"demo\" is invalid: \n" +
+			"* spec.sources[0].repoURL: Required value\n" +
+			"* spec.sources[1].repoURL: Required value\n", fmt.Errorf("exit status 1")
+	}
+	err := Run(opts)
+	if err == nil {
+		t.Fatal("an invalid Application was reported as success")
+	}
+	if !strings.Contains(err.Error(), "spec.sources[0].repoURL: Required value") {
+		t.Errorf("the returned error names no field at fault: %v", err)
+	}
+	if got := buf.String(); !strings.Contains(got, "spec.sources[1].repoURL: Required value") {
+		t.Errorf("the diagnosis lines are not on screen:\n%s", got)
+	}
+}
+
+func TestReasonFoldsAComplaintIntoOneSentence(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"empty", "", "no output"},
+		{"one line", "error: no such file", "error: no such file"},
+		{
+			"headline plus fields",
+			"The Application \"demo\" is invalid: \n* spec.project: Required value\n",
+			`The Application "demo" is invalid: spec.project: Required value`,
+		},
+		{
+			"more than can be shown",
+			"invalid:\n* a\n* b\n* c\n* d\n* e\n",
+			"invalid: a; b; c; d, …",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := reason(c.in); got != c.want {
+				t.Errorf("reason() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestGoingBackAndSayingSkipLeavesNoCredential.
+//
+// The fault a user hit on the first live run: they answered Yes to AI
+// enrichment, then wanted out. Each question used to be its own one-field form,
+// so "back" had nothing to go back to and ctrl+c — killing the run — was the
+// only exit.
+//
+// The questions are one form now, so ↑ returns to the confirm and Skip closes
+// the group. huh keeps a hidden group's values, so the answers have to be
+// cleared: a plan that says "skipping AI enrichment" while a key sits in the
+// answers would write that key to disk.
+func TestGoingBackAndSayingSkipLeavesNoCredential(t *testing.T) {
+	root := sandbox(t)
+	buf := capture(t)
+
+	s := &spy{}
+	opts := base(root, s)
+	opts.Name = ""
+	opts.Yes = false
+	opts.Confirm = func(string) (bool, error) { return true, nil }
+	// Typed a key, went back, chose Skip — which is what the form leaves behind.
+	opts.Ask = func(a *Answers, d Answers) error {
+		*a = d
+		a.Name = "demo"
+		a.AI, a.OpenAIKey = false, ""
+		a.Slack, a.SlackHook = false, ""
+		return nil
+	}
+	if err := Run(opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"platform/ai/secret.yaml", "platform/gitops/argocd/values.slack.yaml"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(f))); err == nil {
+			t.Errorf("%s was written for a capability that was skipped", f)
+		}
+	}
+	if got := buf.String(); !strings.Contains(got, "skipping") {
+		t.Errorf("the plan does not say the capabilities were skipped:\n%s", got)
+	}
+}
+
+// TestTheQuestionsAreOneForm — asserted through the seam, because a form cannot
+// be driven from a test without a terminal: Options has one Ask covering every
+// question, credentials included. A separate AskSecret seam would mean a
+// separate form, which is what could not be navigated back through.
+func TestTheQuestionsAreOneForm(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	s := &spy{}
+	opts := base(root, s)
+	opts.Name = ""
+	opts.Yes = false
+	opts.Confirm = func(string) (bool, error) { return true, nil }
+
+	asked := 0
+	opts.Ask = func(a *Answers, d Answers) error {
+		asked++
+		*a = d
+		a.Name = "demo"
+		a.AI, a.OpenAIKey = true, fakeKey
+		return nil
+	}
+	if err := Run(opts); err != nil {
+		t.Fatal(err)
+	}
+	if asked != 1 {
+		t.Errorf("the questions were asked in %d passes, want 1 — they must be one form", asked)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash("platform/ai/secret.yaml"))); err != nil {
+		t.Error("the key captured by the one form was not written")
 	}
 }

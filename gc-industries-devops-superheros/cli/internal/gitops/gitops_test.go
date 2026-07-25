@@ -149,3 +149,40 @@ func TestListRoundTrip(t *testing.T) {
 		t.Fatalf("List round-trip failed: %+v", apps)
 	}
 }
+
+// TestGenerateRefusesAnEmptyRepoURL.
+//
+// The Application template interpolates the repo URL into two sources. With an
+// empty string it renders valid YAML that the API server rejects at apply time
+// — long after the files were written and committed, which is the worst moment
+// to find out. Refuse while the caller can still be told which knob is missing.
+func TestGenerateRefusesAnEmptyRepoURL(t *testing.T) {
+	root := t.TempDir()
+	app := spec.App{
+		Name: "demo", Namespace: "demo", Owner: "team",
+		Services: []spec.Service{{
+			Name: "web", Image: "docker.io/library/nginx", Tag: "1.27", Port: 8080, Replicas: 1,
+		}},
+	}
+	for _, repo := range []string{"", "   "} {
+		written, err := Generate(root, app, repo, "")
+		if err == nil {
+			t.Fatalf("Generate(%q) wrote %v; want a refusal", repo, written)
+		}
+		if !strings.Contains(err.Error(), "repo") {
+			t.Errorf("the refusal does not name the repo URL: %v", err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(AppDir(root, "demo"), "application.yaml")); err == nil {
+		t.Error("an Application with no repoURL was written to disk anyway")
+	}
+}
+
+// TestOriginURLRejectsAPathArgoCDCannotClone — ArgoCD clones over the network
+// from its own pod, so a local filesystem remote is not an answer, it is a
+// silent failure that only shows up as an unsyncable Application.
+func TestOriginURLRejectsAPathArgoCDCannotClone(t *testing.T) {
+	if got := OriginURL(t.TempDir()); got != "" {
+		t.Errorf("OriginURL on a directory with no repo = %q, want %q", got, "")
+	}
+}

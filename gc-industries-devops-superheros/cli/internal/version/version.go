@@ -41,4 +41,18 @@ package version
 //	        `metrics`, `enable`/`disable ai|slack`, `config list` (presence,
 //	        never values) and `uninstall`, which removes the CLI and not the
 //	        cluster
-const Current = "v0.10.0"
+//	v0.10.1 what the first live `init` showed: it onboarded without telling
+//	        onboard which repo ArgoCD watches, so every Application it generated
+//	        had an empty repoURL and was refused by the API server on the last
+//	        step of the run. The generator now refuses to write an Application
+//	        with no repo URL at all, `init` resolves one from this repo's origin
+//	        remote (so a fork deploys from the fork), and a failed apply reports
+//	        the fields kubectl named instead of only the headline above them
+//	v0.10.2 the questions became navigable. Every prompt was its own one-field
+//	        form, so "back" had nothing to go back to: a user who answered Yes to
+//	        AI enrichment could not un-answer it, and esc was bound to nothing at
+//	        all — leaving ctrl+c, which kills the run, as the only exit. `init`
+//	        now asks everything as one form, with the two capability groups
+//	        hidden when declined, and internal/prompt owns the keys for every
+//	        form in the tool: ↑/shift+tab back, ↓/tab/enter next, esc cancels
+const Current = "v0.10.2"

@@ -13,6 +13,7 @@ import (
 	"github.com/gc-ghub/endurance/internal/gitops"
 	"github.com/gc-ghub/endurance/internal/notify"
 	"github.com/gc-ghub/endurance/internal/policy"
+	"github.com/gc-ghub/endurance/internal/prompt"
 	"github.com/gc-ghub/endurance/internal/render"
 	"github.com/gc-ghub/endurance/internal/spec"
 	"github.com/gc-ghub/endurance/internal/version"
@@ -49,7 +50,7 @@ func Run(opts Options) error {
 	}
 
 	app := spec.App{}
-	appForm := huh.NewForm(
+	appForm := prompt.Form(
 		huh.NewGroup(
 			huh.NewInput().Title("Application name").
 				Description("lowercase, DNS-safe (e.g. superheros)").
@@ -82,10 +83,10 @@ func Run(opts Options) error {
 		app.Services = append(app.Services, svc)
 
 		more := false
-		if err := huh.NewConfirm().
+		if err := prompt.Run(huh.NewConfirm().
 			Title("Add another service?").
 			Description(fmt.Sprintf("%d service(s) so far", len(app.Services))).
-			Value(&more).Run(); err != nil {
+			Value(&more)); err != nil {
 			return err
 		}
 		if !more {
@@ -221,7 +222,7 @@ func finish(opts Options, app spec.App) error {
 func serviceForm(n int) (spec.Service, error) {
 	var s spec.Service
 	portStr, tagStr, replStr := "", "latest", "1"
-	form := huh.NewForm(
+	form := prompt.Form(
 		huh.NewGroup(
 			huh.NewNote().Title(fmt.Sprintf("Service #%d", n)),
 			huh.NewInput().Title("Service name").

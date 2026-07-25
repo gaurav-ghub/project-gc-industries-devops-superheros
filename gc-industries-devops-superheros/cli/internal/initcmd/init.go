@@ -65,6 +65,7 @@ import (
 	"github.com/gc-ghub/endurance/internal/gitops"
 	"github.com/gc-ghub/endurance/internal/onboard"
 	"github.com/gc-ghub/endurance/internal/platform"
+	"github.com/gc-ghub/endurance/internal/prompt"
 	"github.com/gc-ghub/endurance/internal/render"
 	"github.com/gc-ghub/endurance/internal/spec"
 	"github.com/gc-ghub/endurance/internal/success"
@@ -118,6 +119,12 @@ type Options struct {
 	Port    int
 	NoRoute bool
 
+	// GitopsRepo is the URL of the platform repo ArgoCD watches — not the
+	// developer's application source repo above. Empty means "work it out":
+	// this repo's origin remote, which is the right answer for the stranger who
+	// forked it, falling back to gitops.DefaultRepo.
+	GitopsRepo string
+
 	Yes           bool // accept the plan without asking
 	DryRun        bool // print the plan and stop
 	SkipBootstrap bool // the platform is already up and you know it
@@ -125,9 +132,11 @@ type Options struct {
 	Timeout       time.Duration
 
 	// The edges of the world. Tests replace them; the CLI never sets any.
-	Confirm   func(prompt string) (bool, error)
+	//
+	// Ask covers every question, credentials included — they are one form now,
+	// so there is one seam rather than a second one for the masked fields.
+	Confirm   func(question string) (bool, error)
 	Ask       func(a *Answers, defaults Answers) error
-	AskSecret features.Asker
 	Kubectl   func(args ...string) (string, error)
 	Bootstrap func(platform.BootstrapOptions) error
 	Onboard   func(onboard.Options) error
@@ -269,10 +278,11 @@ func Run(opts Options) error {
 		run = onboard.Run
 	}
 	if err := run(onboard.Options{
-		Root:     root,
-		From:     gitops.SpecPath(root, answers.Name),
-		Commit:   true,
-		NoBanner: true,
+		Root:       root,
+		GitopsRepo: gitopsRepo(root, opts),
+		From:       gitops.SpecPath(root, answers.Name),
+		Commit:     true,
+		NoBanner:   true,
 	}); err != nil {
 		return err
 	}
@@ -402,10 +412,6 @@ func collect(opts Options, root string) (Answers, error) {
 	if opts.Path == "" && a.Name != defaults.Name {
 		a.Path = freePath(root, a.Name)
 	}
-
-	if err := askOptional(&a, opts); err != nil {
-		return a, err
-	}
 	return finalise(root, a)
 }
 
@@ -426,15 +432,30 @@ func finalise(root string, a Answers) (Answers, error) {
 	return a, nil
 }
 
-// askApplication is the interactive form: four questions, each with a default
-// that works.
+// askApplication is every question init asks, as one form.
+//
+// One form, not eight, and that is the whole point. Each question used to be
+// its own huh.Form, which meant "back" had nothing to go back to: a user who
+// answered Yes to AI enrichment by accident could not un-answer it, because
+// that form had already closed and the key prompt was a new one. Their only
+// exit was ctrl+c, which kills a run that has not created anything yet but does
+// not say so.
+//
+// Groups are what make it navigable. The two capability groups are hidden when
+// their confirm says no, so declining still costs one keystroke and never shows
+// a prompt for a credential the user does not want to give — and pressing ↑ at
+// the key prompt goes back to the confirm that opened it, where Skip closes the
+// group again. See [prompt] for the keys.
 func askApplication(a *Answers, d Answers) error {
 	if !render.Default().IsTTY() {
 		return fmt.Errorf("`endurance init` asks questions and this is not a terminal — " +
 			"pass --name/--image/--tag/--port and --yes to run it without prompts")
 	}
+	render.Detail(prompt.Hint)
+	render.Blank()
+
 	port := strconv.Itoa(d.Port)
-	form := huh.NewForm(
+	form := prompt.Form(
 		huh.NewGroup(
 			huh.NewNote().Title("Your application").
 				Description("press enter to take the default · everything here can be changed later in specs/<app>.yaml"),
@@ -456,85 +477,77 @@ func askApplication(a *Answers, d Answers) error {
 				Description("optional · recorded in the registry entry, nothing is cloned from it").
 				Value(&a.Repo),
 		),
+
+		// The two capabilities. Asked as a yes/no first so that declining costs
+		// one keystroke, and so the confirmation screen can say "skipped" about
+		// a decision the user made rather than a prompt they never saw.
+		huh.NewGroup(
+			huh.NewConfirm().Title("Enable AI alert enrichment?").
+				Description("a model explains Prometheus alerts before they reach Slack · needs an OpenAI API key, which costs money").
+				Affirmative("Yes").Negative("Skip").
+				Value(&a.AI),
+		),
+		huh.NewGroup(
+			features.SecretField("OpenAI API key",
+				"masked · written to platform/ai/secret.yaml, which is git-ignored, and never printed back",
+				true, &a.OpenAIKey),
+			features.SecretField("Slack incoming-webhook URL for enriched alerts",
+				"masked · optional, leave empty to enrich into the logs only",
+				false, &a.AISlackHook).Validate(optionalWebhook),
+		).WithHideFunc(func() bool { return !a.AI }),
+
+		huh.NewGroup(
+			huh.NewConfirm().Title("Send deploy notifications to Slack?").
+				Description("ArgoCD posts deploying / healthy / failed · needs a Slack incoming-webhook URL").
+				Affirmative("Yes").Negative("Skip").
+				Value(&a.Slack),
+		),
+		huh.NewGroup(
+			features.SecretField("Slack incoming-webhook URL",
+				"masked · written to platform/gitops/argocd/values.slack.yaml, which is git-ignored",
+				true, &a.SlackHook).Validate(features.ValidateWebhook),
+		).WithHideFunc(func() bool { return !a.Slack }),
 	)
 	if err := form.Run(); err != nil {
 		return err
 	}
 	a.Port, _ = strconv.Atoi(port)
+
+	// A hidden group's fields keep whatever they were given before it was
+	// hidden. Somebody who typed a key, went back with ↑ and chose Skip must
+	// end up with no key — the plan says "skipping", and the plan must be true.
+	if !a.AI {
+		a.OpenAIKey, a.AISlackHook = "", ""
+	}
+	if !a.Slack {
+		a.SlackHook = ""
+	}
 	return nil
 }
 
-// askOptional handles the two capabilities that need a credential.
-//
-// Asked as a yes/no first, so that declining costs one keystroke and the
-// confirmation screen can say "skipped" about a decision the user actually
-// made, rather than about a prompt they never saw.
-func askOptional(a *Answers, opts Options) error {
-	if !render.Default().IsTTY() {
+// optionalWebhook validates a webhook that is allowed to be empty. The required
+// ones use features.ValidateWebhook directly.
+func optionalWebhook(s string) error {
+	if strings.TrimSpace(s) == "" {
 		return nil
 	}
-	ask := opts.AskSecret
-	if ask == nil {
-		ask = features.AskSecret
-	}
-
-	if err := huh.NewConfirm().
-		Title("Enable AI alert enrichment?").
-		Description("a model explains Prometheus alerts before they reach Slack · needs an OpenAI API key, which costs money").
-		Affirmative("Yes").Negative("Skip").
-		Value(&a.AI).Run(); err != nil {
-		return err
-	}
-	if a.AI {
-		key, err := ask("OpenAI API key",
-			"masked · written to platform/ai/secret.yaml, which is git-ignored, and never printed back", true)
-		if err != nil {
-			return err
-		}
-		hook, err := ask("Slack incoming-webhook URL for enriched alerts",
-			"masked · optional, leave empty to enrich into the logs only", false)
-		if err != nil {
-			return err
-		}
-		if err := features.ValidateWebhook(hook); err != nil {
-			return err
-		}
-		a.OpenAIKey, a.AISlackHook = key, hook
-	}
-
-	if err := huh.NewConfirm().
-		Title("Send deploy notifications to Slack?").
-		Description("ArgoCD posts deploying / healthy / failed · needs a Slack incoming-webhook URL").
-		Affirmative("Yes").Negative("Skip").
-		Value(&a.Slack).Run(); err != nil {
-		return err
-	}
-	if a.Slack {
-		hook, err := ask("Slack incoming-webhook URL",
-			"masked · written to platform/gitops/argocd/values.slack.yaml, which is git-ignored", true)
-		if err != nil {
-			return err
-		}
-		if err := features.ValidateWebhook(hook); err != nil {
-			return err
-		}
-		a.SlackHook = hook
-	}
-	return nil
+	return features.ValidateWebhook(s)
 }
 
-func askConfirm(prompt string) (bool, error) {
+func askConfirm(question string) (bool, error) {
 	if !render.Default().IsTTY() {
 		return false, fmt.Errorf("init needs confirmation and this is not a terminal — re-run with --yes")
 	}
 	answer := false
-	err := huh.NewConfirm().
-		Title(prompt).
+	err := prompt.Run(huh.NewConfirm().
+		Title(question).
 		Description("everything above · the cluster is deletable with `endurance destroy`").
 		Affirmative("Create it").
 		Negative("Cancel").
-		Value(&answer).
-		Run()
+		Value(&answer))
+	if prompt.Cancelled(err) {
+		return false, nil // esc at the confirmation is Cancel, not a crash
+	}
 	return answer, err
 }
 
@@ -875,8 +888,13 @@ func deploy(root string, a Answers, opts Options) (bool, error) {
 		return false, nil
 	}
 	if out, err := kube("apply", "-f", appFile); err != nil {
-		step.Detail(firstLine(out))
-		err = step.Fail(fmt.Errorf("kubectl apply: %s", firstLine(out)))
+		// kubectl puts the diagnosis on the lines *after* the headline — an
+		// invalid Application says "is invalid:" and then names each field. A
+		// first-line-only report throws away the only part worth reading.
+		for _, l := range outputLines(out) {
+			step.Detail(l)
+		}
+		err = step.Fail(fmt.Errorf("kubectl apply: %s", reason(out)))
 		p.Finish()
 		return false, err
 	}
@@ -1139,6 +1157,60 @@ func relPath(root, path string) string {
 		return filepath.ToSlash(rel)
 	}
 	return path
+}
+
+// gitopsRepo is the URL ArgoCD will be told to watch. The flag wins; otherwise
+// this repo's origin remote, which is what makes a fork deploy from the fork;
+// otherwise the upstream default. It is never empty — an empty repoURL renders
+// an Application the API server rejects.
+func gitopsRepo(root string, opts Options) string {
+	if opts.GitopsRepo != "" {
+		return opts.GitopsRepo
+	}
+	if url := gitops.OriginURL(root); url != "" {
+		return url
+	}
+	return gitops.DefaultRepo
+}
+
+// maxReasons bounds how much of a command's complaint is folded into a
+// one-line error. Every line is still shown as a detail above it.
+const maxReasons = 4
+
+// outputLines returns the non-empty, trimmed lines of a command's output.
+func outputLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// reason folds a multi-line complaint into one sentence: the headline, then the
+// specifics it introduced. "The Application "x" is invalid:" on its own names
+// no fault anybody can act on; with "spec.sources[0].repoURL: Required value"
+// after it, it does.
+func reason(out string) string {
+	lines := outputLines(out)
+	if len(lines) == 0 {
+		return "no output"
+	}
+	head := lines[0]
+	rest := lines[1:]
+	if len(rest) == 0 {
+		return head
+	}
+	head = strings.TrimSuffix(head, ":")
+	more := ""
+	if len(rest) > maxReasons {
+		rest, more = rest[:maxReasons], ", …"
+	}
+	for i, r := range rest {
+		rest[i] = strings.TrimPrefix(r, "* ")
+	}
+	return head + ": " + strings.Join(rest, "; ") + more
 }
 
 func firstLine(s string) string {

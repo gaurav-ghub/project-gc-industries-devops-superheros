@@ -44,6 +44,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/gc-ghub/endurance/internal/notify"
 	"github.com/gc-ghub/endurance/internal/platform"
+	"github.com/gc-ghub/endurance/internal/prompt"
 	"github.com/gc-ghub/endurance/internal/render"
 	"github.com/gc-ghub/endurance/internal/version"
 )
@@ -599,12 +600,35 @@ func ValidateWebhook(hook string) error {
 	return nil
 }
 
-// AskSecret is the masked prompt, and the only one this platform captures a
-// credential with. The value never reaches the screen: huh renders the mask
-// character, and nothing here logs what came back.
+// SecretField is the masked input, and the only construction of one in this
+// tool. The value never reaches the screen: huh renders the mask character, and
+// nothing here logs what came back.
 //
-// Exported so `endurance init` asks for a key exactly the way `enable` does. A
-// second prompt would be a second chance to get the echo mode wrong.
+// It is a field rather than a prompt because `endurance init` assembles its
+// questions into a single form — the only way a user can walk back and un-say
+// yes to a capability. A second masked input built at that call site would be a
+// second chance to get the echo mode wrong, so init borrows this one.
+func SecretField(title, description string, required bool, value *string) *huh.Input {
+	input := huh.NewInput().
+		Title(title).
+		Description(description).
+		EchoMode(huh.EchoModePassword).
+		Value(value)
+	if required {
+		input = input.Validate(func(s string) error {
+			if strings.TrimSpace(s) == "" {
+				return fmt.Errorf("required")
+			}
+			return nil
+		})
+	}
+	return input
+}
+
+// AskSecret is the masked prompt for a caller with exactly one question to ask
+// — `enable ai`, `enable slack`. A caller with several asks them as one form.
+//
+// Exported so `endurance init` refuses a key the same way `enable` does.
 func AskSecret(title, description string, required bool) (string, error) {
 	return askSecret(title, description, required)
 }
@@ -615,37 +639,23 @@ func askSecret(title, description string, required bool) (string, error) {
 			"so there is nowhere to hide the input", title)
 	}
 	value := ""
-	input := huh.NewInput().
-		Title(title).
-		Description(description).
-		EchoMode(huh.EchoModePassword).
-		Value(&value)
-	if required {
-		input = input.Validate(func(s string) error {
-			if strings.TrimSpace(s) == "" {
-				return fmt.Errorf("required")
-			}
-			return nil
-		})
-	}
-	if err := input.Run(); err != nil {
+	if err := prompt.Run(SecretField(title, description, required, &value)); err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(value), nil
 }
 
-func askConfirm(prompt string) (bool, error) {
+func askConfirm(question string) (bool, error) {
 	if !render.Default().IsTTY() {
 		return false, fmt.Errorf("this needs confirmation and this is not a terminal — re-run with --yes")
 	}
 	answer := false
-	err := huh.NewConfirm().
-		Title(prompt).
+	err := prompt.Run(huh.NewConfirm().
+		Title(question).
 		Description("deletes the credentials file · the platform keeps running without it").
 		Affirmative("Disable it").
 		Negative("Keep it").
-		Value(&answer).
-		Run()
+		Value(&answer))
 	return answer, err
 }
 

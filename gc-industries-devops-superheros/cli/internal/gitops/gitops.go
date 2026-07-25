@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -19,6 +20,33 @@ import (
 	"github.com/gc-ghub/endurance/internal/spec"
 	"gopkg.in/yaml.v3"
 )
+
+// DefaultRepo is the platform repo ArgoCD watches when nothing better is known.
+// It is a last resort: a stranger who forked this repo is served by their own
+// origin remote, not by this one, so callers should try OriginURL first.
+const DefaultRepo = "https://github.com/gc-ghub/project-gc-industries-devops-superheros.git"
+
+// OriginURL returns the fetch URL of the origin remote of the repository
+// enclosing root, or "" if there is no repo, no origin, or no git. ArgoCD
+// clones over the network, so a local path is not a usable answer and is
+// rejected here rather than written into an Application that cannot sync.
+func OriginURL(root string) string {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return ""
+	}
+	cmd := exec.Command(git, "remote", "get-url", "origin")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	url := strings.TrimSpace(string(out))
+	if !strings.Contains(url, "://") && !strings.Contains(url, "@") {
+		return "" // a local path; ArgoCD cannot clone it
+	}
+	return url
+}
 
 // chartValues is the shape consumed by charts/app.
 //
@@ -137,6 +165,13 @@ func RepoPrefix(root string) string {
 func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]string, error) {
 	if err := app.Validate(); err != nil {
 		return nil, err
+	}
+	// An empty repo URL renders an Application the API server rejects
+	// ("spec.sources[0].repoURL: Required value"), and it does so only at apply
+	// time — long after the files were written and committed. Refuse here,
+	// where the caller can still be told which knob is missing.
+	if strings.TrimSpace(gitopsRepo) == "" {
+		return nil, fmt.Errorf("no GitOps repo URL: ArgoCD needs the URL of the repo it watches (pass --gitops-repo)")
 	}
 	dir := AppDir(root, app.Name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

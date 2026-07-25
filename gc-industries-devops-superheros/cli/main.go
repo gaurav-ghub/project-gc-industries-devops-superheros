@@ -33,8 +33,10 @@ import (
 	"github.com/gc-ghub/endurance/internal/version"
 )
 
-// defaultGitopsRepo is the platform repo ArgoCD watches. Overridable per command.
-const defaultGitopsRepo = "https://github.com/gc-ghub/project-gc-industries-devops-superheros.git"
+// defaultGitopsRepo is the platform repo ArgoCD watches. Overridable per
+// command. It lives in the gitops package because that package is the one that
+// refuses to render an Application without it.
+const defaultGitopsRepo = gitops.DefaultRepo
 
 func main() {
 	if len(os.Args) < 2 {
@@ -119,6 +121,7 @@ func cmdInit(args []string) error {
 	tag := fs.String("tag", "", "image tag (default: "+initcmd.DefaultTag+"; `latest` is refused by the policy gate)")
 	owner := fs.String("owner", "", "owning team (default: git config user.name)")
 	repo := fs.String("app-repo", "", "the application's own source repo, recorded in the registry")
+	gitopsRepo := fs.String("gitops-repo", "", "repo URL ArgoCD watches (default: this repo's origin remote)")
 	path := fs.String("path", "", "URL path on the platform's host (default: / if free, else /<app>)")
 	port := fs.Int("port", 0, "container port (default: "+fmt.Sprint(initcmd.DefaultPort)+")")
 	noRoute := fs.Bool("no-route", false, "do not give the application a URL")
@@ -133,7 +136,8 @@ func cmdInit(args []string) error {
 	return initcmd.Run(initcmd.Options{
 		Root: *root, Name: *name, Image: *image, Tag: *tag, Owner: *owner,
 		Repo: *repo, Path: *path, Port: *port, NoRoute: *noRoute,
-		Yes: *yes, DryRun: *dryRun, SkipBootstrap: *skipBootstrap,
+		GitopsRepo: *gitopsRepo,
+		Yes:        *yes, DryRun: *dryRun, SkipBootstrap: *skipBootstrap,
 		NoWait: *noWait, Timeout: *timeout,
 	})
 }
