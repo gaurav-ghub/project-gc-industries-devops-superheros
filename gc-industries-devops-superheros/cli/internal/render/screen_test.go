@@ -110,6 +110,56 @@ func TestSuccessScreenGlyphFollowsTheResult(t *testing.T) {
 	}
 }
 
+func credentialSample() []Credential {
+	return []Credential{
+		{Label: "ArgoCD", Username: "admin", Password: "Xk7pQ2mR9tLw"},
+		{Label: "Grafana", Username: "admin", Password: "prom-operator"},
+	}
+}
+
+func TestCredentialBlockGolden(t *testing.T) {
+	r, buf, _ := fixture(t)
+	r.CredentialBlock("Credentials", credentialSample())
+	golden(t, "credential-block", buf.String())
+}
+
+// TestACredentialWithNoPasswordSaysWhy.
+//
+// The rule this type carries, and the reason Password and Note are separate
+// fields: a password that could not be fetched must not render as an empty
+// column, which reads as a blank password and sends someone hunting for a bug
+// in ArgoCD. It renders the reason, where the password would have been.
+func TestACredentialWithNoPasswordSaysWhy(t *testing.T) {
+	r, buf, _ := fixture(t)
+	r.CredentialBlock("Credentials", []Credential{
+		{Label: "ArgoCD", Username: "admin", Password: "Xk7pQ2mR9tLw"},
+		{Label: "Grafana", Username: "admin",
+			Note: "no prometheus-grafana secret — is monitoring installed?"},
+	})
+	got := buf.String()
+
+	for _, line := range strings.Split(got, "\n") {
+		if !strings.Contains(line, "Grafana") {
+			continue
+		}
+		if !strings.Contains(line, IconWarn) {
+			t.Errorf("an unfetchable credential is not marked: %q", line)
+		}
+		if !strings.Contains(line, "is monitoring installed?") {
+			t.Errorf("the reason is missing: %q", line)
+		}
+		// The giveaway for the bug this guards against: a separator with
+		// nothing after it.
+		if strings.HasSuffix(strings.TrimRight(line, " "), "/") {
+			t.Errorf("a credential rendered an empty password: %q", line)
+		}
+	}
+	// The one that did work is unaffected.
+	if !strings.Contains(got, "Xk7pQ2mR9tLw") {
+		t.Errorf("the fetched credential was lost:\n%s", got)
+	}
+}
+
 func TestURLBlockGolden(t *testing.T) {
 	r, buf, _ := fixture(t)
 	r.URLBlock("Platform URLs", []URL{

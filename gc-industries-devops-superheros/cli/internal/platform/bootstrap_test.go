@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func TestBootstrapRunsEveryModuleInOrder(t *testing.T) {
 	f := &fakeRun{}
 
 	if err := Bootstrap(BootstrapOptions{
-		Root: root, SkipPreflight: true, run: f.run, probeURL: allAnswer,
+		Root: root, SkipPreflight: true, run: f.run, probeURL: allAnswer, kubectl: withSecrets,
 	}); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
@@ -68,23 +69,41 @@ func allAnswer(string) (int, error) { return 200, nil }
 // noneAnswer is the other half: nothing is listening.
 func noneAnswer(string) (int, error) { return 0, errors.New("connection refused") }
 
+// noCluster is kubectl against nothing — every secret lookup fails.
+func noCluster(...string) (string, error) { return "", errors.New("connection refused") }
+
+// withSecrets is kubectl against a cluster that has the platform's two logins.
+func withSecrets(args ...string) (string, error) {
+	joined := strings.Join(args, " ")
+	switch {
+	case strings.Contains(joined, "argocd-initial-admin-secret"):
+		return base64.StdEncoding.EncodeToString([]byte("s3cr3t-argo")), nil
+	case strings.Contains(joined, "admin-user"):
+		return base64.StdEncoding.EncodeToString([]byte("admin")), nil
+	case strings.Contains(joined, "prometheus-grafana"):
+		return base64.StdEncoding.EncodeToString([]byte("prom-operator")), nil
+	}
+	return "", errors.New("no such secret")
+}
+
 // TestAccessDetailsComeOnceAtTheEnd.
 //
 // The modules used to each print their own URLs and admin passwords the moment
-// they finished — Grafana's three minutes before ArgoCD existed. Now Endurance
-// prints them once, after the run, and **prints no credential at all**: the
-// command that fetches one is the same information with a shelf life, and it
-// does not end up in a screenshot.
+// they finished — Grafana's three minutes before ArgoCD existed, ArgoCD's while
+// two modules were still pending. Endurance prints them once, after the run,
+// when the whole chain has actually finished and the addresses have been proved.
 //
-// Since Phase 10 it also prints *addresses* rather than port-forward commands,
-// which is asserted here because the whole point of the access layer is that
-// there is nothing left to keep running in another terminal.
+// Since Phase 10 the block carries real *addresses* rather than port-forward
+// commands, and the platform's two logins rather than the commands that fetch
+// them. Both halves are asserted here: the point of the access layer is that
+// nothing is left to keep running in another terminal, and nothing is left to
+// look up.
 func TestAccessDetailsComeOnceAtTheEnd(t *testing.T) {
 	root := repoRoot(t)
 	buf := capture(t)
 
 	if err := Bootstrap(BootstrapOptions{
-		Root: root, SkipPreflight: true, run: (&fakeRun{}).run, probeURL: allAnswer,
+		Root: root, SkipPreflight: true, run: (&fakeRun{}).run, probeURL: allAnswer, kubectl: withSecrets,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -103,14 +122,21 @@ func TestAccessDetailsComeOnceAtTheEnd(t *testing.T) {
 	if strings.Index(got, "── Access") < strings.Index(got, "Bootstrapping the platform —") {
 		t.Errorf("the access block was printed before the run finished:\n%s", got)
 	}
-	// It hands out commands, never secrets.
-	for _, forbidden := range []string{"Password:", "password:", "Username:"} {
-		if strings.Contains(got, forbidden) {
-			t.Errorf("bootstrap printed something shaped like a credential (%q):\n%s", forbidden, got)
+	// The credentials come from the cluster, in the block, with no kubectl for
+	// the developer to run. This reverses the Phase 9 rule deliberately — see
+	// the 2026-07-25 entry in decisions.md — and what replaced it is the
+	// suppression switch, asserted in TestCredentialsCanBeLeftOutOfATranscript.
+	if !strings.Contains(got, "Credentials") {
+		t.Errorf("the access block has no credentials:\n%s", got)
+	}
+	for _, want := range []string{"s3cr3t-argo", "prom-operator", "admin"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the credential block is missing %q:\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, "argocd-initial-admin-secret") {
-		t.Errorf("it does not say how to fetch the ArgoCD password:\n%s", got)
+	// It fetched them, so the by-hand commands are noise above their own answer.
+	if strings.Contains(got, "argocd-initial-admin-secret") {
+		t.Errorf("it printed the fetch command as well as the password:\n%s", got)
 	}
 
 	// Real addresses on the platform's one host, not four port-forwards.
@@ -140,7 +166,7 @@ func TestBootstrapIsHonestWhenNothingAnswers(t *testing.T) {
 	buf := capture(t)
 
 	if err := Bootstrap(BootstrapOptions{
-		Root: root, SkipPreflight: true, run: (&fakeRun{}).run, probeURL: noneAnswer,
+		Root: root, SkipPreflight: true, run: (&fakeRun{}).run, probeURL: noneAnswer, kubectl: noCluster,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +195,7 @@ func TestBootstrapStopsAtTheFirstFailure(t *testing.T) {
 		Chain[1].Script: errors.New("exit status 1"),
 	}}
 
-	err := Bootstrap(BootstrapOptions{Root: root, SkipPreflight: true, run: f.run, probeURL: allAnswer})
+	err := Bootstrap(BootstrapOptions{Root: root, SkipPreflight: true, run: f.run, probeURL: allAnswer, kubectl: withSecrets})
 	if err == nil {
 		t.Fatal("a failed module did not fail the bootstrap")
 	}
@@ -198,7 +224,7 @@ func TestBootstrapDryRunTouchesNothing(t *testing.T) {
 	f := &fakeRun{}
 
 	if err := Bootstrap(BootstrapOptions{
-		Root: root, SkipPreflight: true, DryRun: true, run: f.run, probeURL: allAnswer,
+		Root: root, SkipPreflight: true, DryRun: true, run: f.run, probeURL: allAnswer, kubectl: withSecrets,
 	}); err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
@@ -228,7 +254,7 @@ func TestBootstrapPreflightGatesTheRun(t *testing.T) {
 	buf := capture(t)
 	f := &fakeRun{}
 
-	err := Bootstrap(BootstrapOptions{Root: root, run: f.run, probe: missingTool("kind"), probeURL: allAnswer})
+	err := Bootstrap(BootstrapOptions{Root: root, run: f.run, probe: missingTool("kind"), probeURL: allAnswer, kubectl: withSecrets})
 	if err == nil {
 		t.Fatal("bootstrap ran with a required tool missing")
 	}

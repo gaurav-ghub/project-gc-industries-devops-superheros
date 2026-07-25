@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -76,7 +77,19 @@ func TestPreview(t *testing.T) {
 		}
 	}
 	p.Finish()
-	AccessBlock(root, func(string) (int, error) { return 200, nil })
+	AccessBlock(root, func(string) (int, error) { return 200, nil },
+		// The credentials a real cluster would hand back, scripted — the block
+		// is half of what closes a bootstrap now, and a preview that skipped it
+		// would be previewing the wrong screen.
+		func(args ...string) (string, error) {
+			if len(args) > 4 && args[4] == "argocd-initial-admin-secret" {
+				return base64.StdEncoding.EncodeToString([]byte("Xk7pQ2mR9tLw")), nil
+			}
+			if len(args) > 6 && strings.HasSuffix(args[6], "admin-user}") {
+				return base64.StdEncoding.EncodeToString([]byte("admin")), nil
+			}
+			return base64.StdEncoding.EncodeToString([]byte("prom-operator")), nil
+		})
 	render.Dashboard("Platform ready", [][2]string{
 		{"Cluster", render.Value(ClusterName(root))},
 		{"Context", render.Value(ContextName(root))},

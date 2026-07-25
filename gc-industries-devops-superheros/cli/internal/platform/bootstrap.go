@@ -25,12 +25,13 @@ type BootstrapOptions struct {
 	SkipPreflight bool   // break glass: run the chain without checking the tools
 	DryRun        bool   // print the chain and the commands, run nothing
 
-	// run, probe and probeURL are the edges of the operating system this
-	// command touches — a subprocess, the tools on PATH, and the network.
-	// Tests replace them; the CLI never sets any of them.
+	// The four edges of the operating system this command touches: a
+	// subprocess, the tools on PATH, the network, and the cluster. Tests
+	// replace them; the CLI never sets any of them.
 	run      runFunc
 	probe    *probe
 	probeURL probeFunc
+	kubectl  kubectlFunc
 }
 
 // Bootstrap stands the platform up and returns an error if any module failed.
@@ -90,7 +91,7 @@ func Bootstrap(opts BootstrapOptions) error {
 		return fmt.Errorf("bootstrap did not complete")
 	}
 
-	AccessBlock(root, opts.probeURL)
+	AccessBlock(root, opts.probeURL, opts.kubectl)
 
 	render.Dashboard("Platform ready", [][2]string{
 		{"Cluster", render.Value(ClusterName(root))},
@@ -118,11 +119,17 @@ func Bootstrap(opts BootstrapOptions) error {
 // Each bash module used to print its own version of it the moment it finished:
 // Grafana's URL and password three minutes before ArgoCD existed, ArgoCD's
 // "🎉 Welcome Onboard! Your platform is now ready" while two modules were still
-// pending. A second visual system, a readiness claim no single module is in a
-// position to make, and live admin passwords in a scrollback that gets
-// screenshotted. The modules are quiet under ENDURANCE_FRAMED, this runs once
-// when the whole chain has finished, and **no credential is printed** — the
-// command that fetches one is, which is the same information with a shelf life.
+// pending. A second visual system, and a readiness claim no single module is in
+// a position to make. The modules are quiet under ENDURANCE_FRAMED and this runs
+// once, when the whole chain has actually finished.
+//
+// What *has* changed is the credentials. Phase 9 banned printing them outright;
+// Phase 10 prints them here, fetched from the cluster, because a developer who
+// has to run two kubectl commands to log in is a developer the platform has
+// failed. The hazard the ban was aimed at was never the secret — it is a local
+// kind cluster deleted at the end of a demo — it was this transcript ending up
+// in a screenshot. So the block is one thing you can switch off:
+// ENDURANCE_NO_CREDENTIALS=1 before you record.
 
 // steps is the plan the progress counter is drawn from.
 func steps() []string {

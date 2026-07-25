@@ -105,6 +105,58 @@ func (r *Renderer) URLBlock(title string, urls []URL) {
 	}
 }
 
+// A Credential is one login the platform generated for itself.
+//
+// Password is only ever a value the cluster actually returned. When it could not
+// be fetched the field stays empty and Note says why — a blank password rendered
+// as though it were one is the same class of untruth as a ✓ for a pod nobody
+// looked at.
+type Credential struct {
+	Label    string // "ArgoCD", "Grafana"
+	Username string
+	Password string
+	Note     string // when Password is empty: why, and what to do instead
+}
+
+// CredentialBlock prints logins under a titled rule.
+//
+// It is the URL block's shape with different content — an aligned label column,
+// the changing part in the accent colour — and no new glyph or box, so the two
+// read as one system when they appear together.
+//
+// Whether this is called at all is the caller's decision and a deliberate one:
+// see ENDURANCE_NO_CREDENTIALS in cli/internal/platform. Phase 9 banned printing
+// passwords outright, because the bash modules were emitting them into the
+// middle of a bootstrap transcript that gets screenshotted; Phase 10 narrowed
+// that to the transcript rather than the tool, since a developer who has to run
+// two kubectl commands to log in is a developer the platform has failed.
+func (r *Renderer) CredentialBlock(title string, creds []Credential) {
+	r.Section(title)
+	if len(creds) == 0 {
+		return
+	}
+	w := 0
+	for _, c := range creds {
+		if len(c.Label) > w {
+			w = len(c.Label)
+		}
+	}
+	for _, c := range creds {
+		line := r.muted.Render(pad(c.Label, w)) + "  "
+		if c.Password == "" {
+			// Nothing was fetched. Say so where the password would have been,
+			// rather than printing an empty field that reads as a blank password.
+			r.emit(line + r.warn.Render(IconWarn) + " " + r.muted.Render(c.Note))
+			continue
+		}
+		line += r.Value(c.Username) + r.faint.Render(" / ") + r.Value(c.Password)
+		if c.Note != "" {
+			line += "  " + r.faint.Render(c.Note)
+		}
+		r.emit(line)
+	}
+}
+
 // Dashboard prints a compact boxed summary: title, key/value rows, and
 // next-step lines. It is the terse sibling of SuccessScreen, used by onboard,
 // release and canary, where there is no cluster state to report yet.

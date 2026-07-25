@@ -327,21 +327,170 @@ func TestUrlsReportsWhatAnswered(t *testing.T) {
 	})
 }
 
-// TestUrlsNeverPrintsACredential — the Phase 9 rule, applied to the command
-// that inherited the access block.
-func TestUrlsNeverPrintsACredential(t *testing.T) {
+// TestUrlsHandsOverTheTwoLogins.
+//
+// Phase 9 banned printing a password anywhere; Phase 10 prints these two,
+// fetched from the cluster, because a developer who has to run two kubectl
+// commands to log in is a developer the platform has failed. The reversal is
+// deliberate and recorded — see decisions.md — and it is narrow: see
+// TestOnlyTheTwoPlatformLoginsAreEverRead below, which is the half of the rule
+// that did not change.
+func TestUrlsHandsOverTheTwoLogins(t *testing.T) {
 	buf := capture(t)
-	if err := Urls(UrlsOptions{Root: repoRoot(t), Check: true, probe: allAnswer}); err != nil {
+	if err := Urls(UrlsOptions{
+		Root: repoRoot(t), Check: true, probe: allAnswer, kubectl: withSecrets,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	got := buf.String()
-	for _, forbidden := range []string{"Password:", "password:", "Username:"} {
-		if strings.Contains(got, forbidden) {
-			t.Errorf("urls printed something shaped like a credential (%q):\n%s", forbidden, got)
+
+	if !strings.Contains(got, "Credentials") {
+		t.Errorf("urls printed no credential block:\n%s", got)
+	}
+	for _, want := range []string{"s3cr3t-argo", "prom-operator"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q — the developer still has to go and find it:\n%s", want, got)
 		}
 	}
+	// Having produced the answer, it must not also print the question.
+	if strings.Contains(got, "base64 -d") {
+		t.Errorf("urls printed the fetch command beside the password it fetched:\n%s", got)
+	}
+}
+
+// TestCredentialsCanBeLeftOutOfATranscript.
+//
+// The hazard the Phase 9 ban was aimed at was never the secret itself — it is a
+// local kind cluster deleted at the end of a demo — it was this transcript
+// ending up in a screenshot, in an evidence folder, in a portfolio post. So the
+// block is one environment variable away from collapsing back to the commands.
+func TestCredentialsCanBeLeftOutOfATranscript(t *testing.T) {
+	t.Setenv(EnvNoCredentials, "1")
+	buf := capture(t)
+
+	if err := Urls(UrlsOptions{
+		Root: repoRoot(t), Check: true, probe: allAnswer, kubectl: withSecrets,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+
+	for _, forbidden := range []string{"s3cr3t-argo", "prom-operator"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("%s did not suppress %q:\n%s", EnvNoCredentials, forbidden, got)
+		}
+	}
+	// And it says how to get them, because suppressed is not the same as gone.
 	if !strings.Contains(got, "argocd-initial-admin-secret") {
-		t.Errorf("it does not say how to fetch the ArgoCD password:\n%s", got)
+		t.Errorf("with credentials suppressed, nothing says how to fetch one:\n%s", got)
+	}
+}
+
+// TestOnlyTheTwoPlatformLoginsAreEverRead.
+//
+// The half of the Phase 9 rule that did not change, and the more important half.
+// The platform holds secrets that matter: superhero-ai-secret carries an OpenAI
+// API key and a Slack webhook URL, both of which outlive the cluster and neither
+// of which is Endurance's to hand out. Applications hold their own.
+//
+// So this asserts two things at once — the table is exactly ArgoCD and Grafana,
+// and no code path asks the cluster for anything else. A future phase that adds
+// a third login has to come here and argue for it.
+func TestOnlyTheTwoPlatformLoginsAreEverRead(t *testing.T) {
+	want := map[string]bool{
+		"argocd-initial-admin-secret": true,
+		"prometheus-grafana":          true,
+	}
+	if len(logins) != len(want) {
+		t.Fatalf("the platform now hands out %d logins, not %d — "+
+			"adding one is a decision, not a change", len(logins), len(want))
+	}
+	for _, l := range logins {
+		if !want[l.Secret] {
+			t.Errorf("Endurance reads secret %s/%s, which is not one of its own two logins",
+				l.Namespace, l.Secret)
+		}
+	}
+
+	// And what it actually asks the cluster for, recorded rather than assumed.
+	var asked []string
+	FetchCredentials(func(args ...string) (string, error) {
+		for i, a := range args {
+			if a == "secret" && i+1 < len(args) {
+				asked = append(asked, args[i+1])
+			}
+		}
+		return "", errors.New("no")
+	})
+	for _, name := range asked {
+		if !want[name] {
+			t.Errorf("FetchCredentials asked the cluster for secret %q", name)
+		}
+	}
+	for _, forbidden := range []string{"superhero-ai-secret", "values.slack.yaml"} {
+		for _, name := range asked {
+			if strings.Contains(name, forbidden) {
+				t.Errorf("Endurance reached for %q — that key outlives the cluster", forbidden)
+			}
+		}
+	}
+}
+
+// A password that could not be fetched must never render as a blank one: the
+// same rule as a ✓ for a pod nobody looked at.
+//
+// And the reason has to be the right one. "The initial-admin secret is removed
+// once the password is changed" is true of a running ArgoCD and misleading about
+// a cluster that is not running at all — it sends someone looking for a deleted
+// secret on a machine with no cluster.
+func TestAnUnfetchableCredentialSaysSoRatherThanShowingNothing(t *testing.T) {
+	creds := FetchCredentials(noCluster)
+	if len(creds) != len(logins) {
+		t.Fatalf("got %d credentials, want %d", len(creds), len(logins))
+	}
+	for _, c := range creds {
+		if c.Password != "" {
+			t.Errorf("%s produced a password from an unreachable cluster", c.Label)
+		}
+		if !strings.Contains(c.Note, "not reachable") {
+			t.Errorf("%s blames the secret for an unreachable cluster: %q", c.Label, c.Note)
+		}
+	}
+
+	// The other half: the cluster answered, and the secret genuinely is not
+	// there. kubectl says so in the words below, and that is a different note.
+	absent := FetchCredentials(func(...string) (string, error) {
+		return `Error from server (NotFound): secrets "argocd-initial-admin-secret" not found`,
+			errors.New("exit status 1")
+	})
+	for _, c := range absent {
+		if c.Password != "" {
+			t.Errorf("%s produced a password from a missing secret", c.Label)
+		}
+		if strings.Contains(c.Note, "not reachable") {
+			t.Errorf("%s blamed the cluster for a secret the cluster answered about: %q",
+				c.Label, c.Note)
+		}
+	}
+
+	// And with no kubectl at all — `endurance urls` is useful on a machine that
+	// has never had a cluster, and must say which of the two it is.
+	for _, c := range FetchCredentials(nil) {
+		if c.Password != "" || !strings.Contains(c.Note, "kubectl") {
+			t.Errorf("%s: %+v — want an empty password and a reason naming kubectl", c.Label, c)
+		}
+	}
+}
+
+// A Secret whose value decodes to nothing is not a password. ArgoCD's
+// initial-admin secret is deleted once the password is changed, and an empty
+// jsonpath result is what that looks like from here.
+func TestAnEmptySecretIsNotAPassword(t *testing.T) {
+	creds := FetchCredentials(func(...string) (string, error) { return "", nil })
+	for _, c := range creds {
+		if c.Password != "" {
+			t.Errorf("%s turned an empty secret into a password %q", c.Label, c.Password)
+		}
 	}
 }
 

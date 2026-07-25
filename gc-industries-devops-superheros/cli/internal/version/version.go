@@ -28,4 +28,9 @@ package version
 //	        `endurance status <app>` becomes the post-deploy success screen.
 //	        An application asks for its own URL in its spec; the platform
 //	        provides the door and does not decide what is behind it
-const Current = "v0.9.0"
+//	v0.9.1  the platform hands over its own two logins — ArgoCD's and
+//	        Grafana's, fetched from the cluster — instead of printing the
+//	        kubectl commands that fetch them. Narrow by construction: those two
+//	        and no others, and ENDURANCE_NO_CREDENTIALS=1 leaves them out of a
+//	        transcript that is going to be screenshotted
+const Current = "v0.9.1"

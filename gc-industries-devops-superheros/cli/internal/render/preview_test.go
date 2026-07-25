@@ -72,6 +72,12 @@ func TestPreview(t *testing.T) {
 	})
 
 	r.URLBlock("Platform URLs", superherosResult().URLs)
+	r.CredentialBlock("Credentials", credentialSample())
+	r.CredentialBlock("Credentials · one that could not be fetched", []Credential{
+		{Label: "ArgoCD", Username: "admin", Password: "Xk7pQ2mR9tLw"},
+		{Label: "Grafana", Username: "admin",
+			Note: "no prometheus-grafana secret — is monitoring installed?"},
+	})
 	r.Dashboard("Application onboarded",
 		[][2]string{{"App", r.Value("superheros")}, {"Namespace", r.Value("superheros")}},
 		[]string{"git push — ArgoCD deploys from the repo"})

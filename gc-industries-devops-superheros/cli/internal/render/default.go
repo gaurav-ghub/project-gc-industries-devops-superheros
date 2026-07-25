@@ -63,6 +63,7 @@ func Bar(done, total, width int) string                       { return Default()
 func Dashboard(title string, rows [][2]string, next []string) { Default().Dashboard(title, rows, next) }
 func SuccessScreen(res Result)                                { Default().SuccessScreen(res) }
 func URLBlock(title string, urls []URL)                       { Default().URLBlock(title, urls) }
+func CredentialBlock(title string, creds []Credential)        { Default().CredentialBlock(title, creds) }
 
 // Live primitives.
 func StartStep(msg string) *LiveStep { return Default().StartStep(msg) }
