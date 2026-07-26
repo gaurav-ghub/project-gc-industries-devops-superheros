@@ -135,8 +135,17 @@ type Options struct {
 	//
 	// Ask covers every question, credentials included — they are one form now,
 	// so there is one seam rather than a second one for the masked fields.
+	//
+	// Doctor was the edge nobody noticed was an edge. The real one asks *this*
+	// machine whether docker, kind, kubectl, helm and istioctl are installed, so
+	// every test that left it alone passed or failed according to what happened
+	// to be on the laptop running it. The whole suite was green on the machine
+	// this was written on and red the first time it ran anywhere else — which
+	// was the v0.11.0 release workflow, on a runner with none of those tools.
+	// A test that asks the host a question it does not control is not a test.
 	Confirm   func(question string) (Decision, error)
 	Ask       func(a *Answers, defaults Answers) error
+	Doctor    func(platform.DoctorOptions) error
 	Kubectl   func(args ...string) (string, error)
 	Bootstrap func(platform.BootstrapOptions) error
 	Onboard   func(onboard.Options) error
@@ -205,8 +214,12 @@ func Run(opts Options) error {
 
 	// 1 · the machine. Same checks bootstrap gates on, run here so a missing
 	// tool is found before anybody has answered a question about their app.
+	doctor := opts.Doctor
+	if doctor == nil {
+		doctor = platform.Doctor
+	}
 	render.Section("1 of 4 · Checking this machine")
-	if err := platform.Doctor(platform.DoctorOptions{Root: root, NoBanner: true}); err != nil {
+	if err := doctor(platform.DoctorOptions{Root: root, NoBanner: true}); err != nil {
 		render.Blank()
 		render.Info("`endurance init` needs all of these — fix what is named above and run it again")
 		return err

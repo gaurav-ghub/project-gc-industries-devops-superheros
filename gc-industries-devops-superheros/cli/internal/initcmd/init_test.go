@@ -147,11 +147,28 @@ func healthyCluster(root string) platform.ClusterState {
 func noHealth(string) platform.Health  { return platform.Health{Total: 10} }
 func allHealth(string) platform.Health { return platform.Health{Reachable: true, Ready: 10, Total: 10} }
 
+// readyMachine is the machine check answered without asking the machine.
+//
+// Every test below is about what init does once the tools are there, and the
+// real platform.Doctor looks for docker, kind, kubectl, helm and istioctl on
+// whatever host is running the test. Leaving it real made this suite a report
+// on the developer's laptop: green here, red on a CI runner, and red for
+// anybody who cloned the repo before installing the toolchain. The gate itself
+// is not skipped by this — it has its own test below, and platform's own suite
+// covers what Doctor reports.
+func readyMachine(platform.DoctorOptions) error { return nil }
+
+// unreadyMachine is the same edge answering the way a bare machine does.
+func unreadyMachine(platform.DoctorOptions) error {
+	return errors.New("preflight failed — 5 of 8 checks need attention")
+}
+
 // base is a run with every prompt already answered, which is the form the
 // runbook and these tests use.
 func base(root string, s *spy) Options {
 	return Options{
 		Root: root, Name: "demo", Yes: true,
+		Doctor:    readyMachine,
 		Bootstrap: s.bootstrap, Onboard: s.onboard, Kubectl: s.kube,
 		Inspect: noCluster, Health: noHealth,
 		Timeout: time.Second,
@@ -932,6 +949,38 @@ func TestThePhasesRunInSequenceAndNotNested(t *testing.T) {
 	}
 	if strings.Contains(got, "[1/9]") {
 		t.Errorf("a chain was renumbered to include another chain's steps:\n%s", got)
+	}
+}
+
+// TestInitStopsOnAMachineThatIsNotReady.
+//
+// The gate that phase 1 exists for, and it had no test until the release
+// workflow found out why: the machine check was wired straight to the host, so
+// there was no way to write this one. A missing tool has to stop the run before
+// a single question is asked and before anything is written — finding out that
+// kind is not installed after answering six questions is the failure this
+// ordering was chosen to avoid.
+func TestInitStopsOnAMachineThatIsNotReady(t *testing.T) {
+	root := sandbox(t)
+	buf := capture(t)
+	s := &spy{}
+
+	opts := base(root, s)
+	opts.Doctor = unreadyMachine
+
+	err := Run(opts)
+	if err == nil {
+		t.Fatal("init ran on a machine that failed its preflight")
+	}
+	if !strings.Contains(buf.String(), "fix what is named above") {
+		t.Errorf("the run stopped without saying what to do about it:\n%s", buf.String())
+	}
+	if s.bootstrapped != 0 || len(s.onboarded) != 0 || len(s.kubectl) != 0 {
+		t.Errorf("something ran anyway: bootstrap=%d onboard=%d kubectl=%d",
+			s.bootstrapped, len(s.onboarded), len(s.kubectl))
+	}
+	if _, err := os.Stat(filepath.Join(root, "specs", "demo.yaml")); !os.IsNotExist(err) {
+		t.Error("a spec was written for a run that never got past the machine check")
 	}
 }
 
