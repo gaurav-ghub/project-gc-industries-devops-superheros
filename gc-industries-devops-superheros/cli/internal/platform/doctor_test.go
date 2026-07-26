@@ -106,6 +106,43 @@ func TestPreflightReportsAMissingTool(t *testing.T) {
 	}
 }
 
+// TestDoctorStillChecksTheMachineWithNoRepo.
+//
+// This is Phase 12's doing, and it is the difference between the exit criterion
+// meaning something and not. `curl … | bash` puts one binary on PATH and
+// nothing else, so the first `endurance doctor` a stranger runs is one with no
+// clone anywhere above it — and until now that printed a single failed "platform
+// repo" check and stopped, saying nothing about whether Docker was even
+// running. Every tool check is a fact about the machine and needs no repo.
+func TestDoctorStillChecksTheMachineWithNoRepo(t *testing.T) {
+	checks := Preflight(*fakeProbe(nil, map[string]string{"docker": "27.1.1"}, nil), "")
+
+	for _, name := range []string{"docker", "kind", "kubectl", "helm", "git", "bash"} {
+		if c := find(t, checks, name); c.State != render.StateReady {
+			t.Errorf("%s = %v (%s) with no repo; the tools do not depend on one", name, c.State, c.Note)
+		}
+	}
+	// istioctl is the one check that reads a file out of the repo, and it
+	// already knows how to say so rather than failing.
+	if c := find(t, checks, "istioctl"); c.State == render.StateFailed {
+		t.Errorf("istioctl failed for want of a repo: %s", c.Note)
+	}
+
+	repo := find(t, checks, "platform repo")
+	if repo.State != render.StateFailed {
+		t.Errorf("a missing platform repo is reported as %v; it is what `init` reads", repo.State)
+	}
+	// Every other failed check on this list carries the one thing that fixes
+	// it, and this one is no different: the verdict says "install what is
+	// missing above", so what is missing has to name its own fix.
+	if !strings.Contains(repo.Note, "not found") || !strings.Contains(repo.Note, "git clone https://") {
+		t.Errorf("the missing repo does not name the clone that fixes it: %q", repo.Note)
+	}
+	if err := preflightVerdict(checks); err == nil {
+		t.Error("the preflight passed with no platform repo")
+	}
+}
+
 // TestPreflightCatchesADockerDaemonThatIsNotRunning — the most common failure
 // on a laptop, and the one where "docker: found" would be a lie. `docker
 // version --format {{.Server.Version}}` exits non-zero without a daemon.

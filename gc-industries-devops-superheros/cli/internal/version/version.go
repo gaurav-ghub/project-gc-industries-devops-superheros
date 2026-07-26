@@ -70,4 +70,43 @@ package version
 //	        a user at the key prompt after v0.10.2. And the end-of-run screen
 //	        hands over ArgoCD's and Grafana's passwords instead of only their
 //	        usernames, inside a box that no longer outgrows the terminal
-const Current = "v0.10.3"
+//	v0.11.0 the single-command installer — `curl -fsSL …/install.sh | bash` puts
+//	        a checksum-verified binary on PATH, so the story no longer opens with
+//	        "install Go and build it". The release is cut by a workflow on a `v*`
+//	        tag, which refuses to publish when the tag and this constant disagree,
+//	        and a release build is stamped with the commit and date it came from
+//	        so `endurance version` can tell a release from a working tree
+const Current = "v0.11.0"
+
+// Commit and Built are stamped into a release build by the release workflow:
+//
+//	go build -ldflags "-X github.com/gc-ghub/endurance/internal/version.Commit=<sha>
+//	                   -X github.com/gc-ghub/endurance/internal/version.Built=<date>"
+//
+// They are empty in anything else, and that is the entire point. Current is a
+// constant, so a working tree and the release cut from it report the same
+// number — which is correct for the release and a claim the working tree has
+// not earned. The stamp is the part a source file cannot know about itself.
+//
+// This is provenance, not proof: anyone can pass the same ldflags by hand.
+// Nothing here is a security boundary, and the question it answers is the one
+// people actually ask — "is this the thing I installed, or the thing I built?"
+var (
+	Commit string // short SHA the release was built from
+	Built  string // RFC 3339 date it was built
+)
+
+// IsRelease reports whether this binary came out of the release workflow.
+func IsRelease() bool { return Commit != "" }
+
+// Provenance is the one phrase `endurance version` prints about this binary.
+func Provenance() string {
+	if !IsRelease() {
+		return "dev build — not installed from a release"
+	}
+	p := "release build · " + Commit
+	if Built != "" {
+		p += " · " + Built
+	}
+	return p
+}

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/gc-ghub/endurance/internal/installer"
 	"github.com/gc-ghub/endurance/internal/render"
 	"github.com/gc-ghub/endurance/internal/version"
 )
@@ -87,15 +88,14 @@ func Doctor(opts DoctorOptions) error {
 	if !opts.NoBanner {
 		render.Banner(version.Current)
 	}
-	root, err := FindRoot(opts.Root)
-	if err != nil {
-		render.Section("Preflight")
-		render.Checks([]render.Check{{
-			Name: "platform repo", State: render.StateFailed,
-			Note: "not found — run from the platform repo, or pass --root",
-		}})
-		return err
-	}
+	// A missing repo used to end the command here, with one failed check and no
+	// idea whether Docker was running. Since Phase 12 the first thing a stranger
+	// has is the binary and nothing else — `curl … | bash` installs one file —
+	// so `endurance doctor` on a machine with no clone has to be worth running.
+	// Every tool check is about the machine and needs no repo; only istioctl's
+	// version comparison does, and it already says so when it cannot read the
+	// declared version.
+	root, _ := FindRoot(opts.Root)
 
 	render.Section("Preflight")
 	checks := Preflight(realProbe(), root)
@@ -106,14 +106,27 @@ func Doctor(opts DoctorOptions) error {
 
 // Preflight runs the checks and returns them without printing, so bootstrap can
 // gate on the same list it shows.
+//
+// An empty root means no platform repo was found. That is a failed check rather
+// than a reason not to run the others: the tools are a fact about the machine
+// either way, and reporting "no repo" while saying nothing about a stopped
+// Docker daemon sends somebody to fix one thing and come back to the other.
 func Preflight(p probe, root string) []render.Check {
 	checks := make([]render.Check, 0, len(tools)+1)
 	for _, t := range tools {
 		checks = append(checks, t.check(p, root))
 	}
-	checks = append(checks, render.Check{
-		Name: "platform repo", State: render.StateReady, Note: root,
-	})
+	repo := render.Check{Name: "platform repo", State: render.StateReady, Note: root}
+	if root == "" {
+		// Same shape as every other failed check on this list: what is missing,
+		// then the one thing that fixes it. A missing repo is not a different
+		// kind of problem from a missing kind, and giving it its own paragraph
+		// under the table made the verdict's "install what is missing above"
+		// read as though it were about something else.
+		repo.State = render.StateFailed
+		repo.Note = "not found here — git clone https://github.com/" + installer.Repo + ".git"
+	}
+	checks = append(checks, repo)
 	return checks
 }
 

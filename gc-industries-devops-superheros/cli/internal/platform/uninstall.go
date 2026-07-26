@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/gc-ghub/endurance/internal/installer"
 	"github.com/gc-ghub/endurance/internal/render"
 	"github.com/gc-ghub/endurance/internal/version"
 )
@@ -159,7 +160,7 @@ func Uninstall(opts UninstallOptions) error {
 	rows = append(rows, [2]string{"Git", render.Muted("untouched — `apps/`, `specs/` and `platform/` are still here")})
 
 	next := []string{
-		"go build -o endurance ./cli   rebuilds it from this repo",
+		"go build -o endurance ./cli   rebuilds it from a clone of this repo",
 	}
 	if len(moved) > 0 {
 		next = append(next, "delete "+shortPath(moved[0].to)+"   once this process has exited")
@@ -171,6 +172,15 @@ func Uninstall(opts UninstallOptions) error {
 	if len(removed) == 0 && len(moved) > 0 {
 		title = "Endurance CLI moved off PATH"
 	}
+
+	// The way back, printed above the box rather than inside it. The install
+	// command is ~150 columns and a box wraps its content with real newlines —
+	// which is fine for a sentence and ruins a command, because the two halves
+	// stop being one line anybody can select. Outside the box the terminal
+	// soft-wraps it and a copy still works.
+	render.Blank()
+	render.Info("the way back, whenever you want it:")
+	render.Detail(installer.Command)
 	render.Dashboard(title, rows, next)
 	return nil
 }

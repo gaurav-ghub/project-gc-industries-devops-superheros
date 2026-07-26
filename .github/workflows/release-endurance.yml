@@ -1,0 +1,169 @@
+# Cut an Endurance CLI release.
+#
+# Push a tag and this publishes the binaries `install.sh` downloads:
+#
+#     git tag v0.11.0 && git push origin v0.11.0
+#
+# Why a workflow rather than cutting it by hand: a hand-cut release means
+# cross-compiling five targets on one developer's machine and generating the
+# checksums file on the same machine that produced the binaries, so a mistake in
+# either is invisible from the outside. Here the tag is the whole trigger, the
+# artefacts come out of a clean checkout, and the job can refuse to publish —
+# which is what makes "a release whose binary reports a different version than
+# its tag does not get cut" a fact rather than a note in a runbook.
+#
+# The assets carry no version in their names, deliberately: install.sh resolves
+# the latest release through /releases/latest/download/<asset>, a redirect that
+# needs no API call and therefore no token, and that only works when the name is
+# knowable before the version is. cli/internal/installer/installer.go holds the
+# same list, and cli/internal/installer/installer_test.go fails when this file
+# and that one disagree.
+
+name: Release the Endurance CLI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CLI_DIR: gc-industries-devops-superheros/cli
+  MODULE: github.com/gc-ghub/endurance
+
+jobs:
+  release:
+    name: Build, verify and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gc-industries-devops-superheros/cli/go.mod
+          cache-dependency-path: gc-industries-devops-superheros/cli/go.sum
+
+      # The gate. version.Current is a constant in the source, so the tag is the
+      # only place the two can disagree — and a release that says v0.11.0 on the
+      # download page and v0.10.3 when you run it is worse than no release.
+      - name: The tag and version.Current must agree
+        run: |
+          declared=$(sed -n 's/^const Current = "\(.*\)"$/\1/p' "$CLI_DIR/internal/version/version.go")
+          if [ -z "$declared" ]; then
+            echo "error: could not read const Current from $CLI_DIR/internal/version/version.go" >&2
+            exit 1
+          fi
+          if [ "$declared" != "$GITHUB_REF_NAME" ]; then
+            echo "error: tag $GITHUB_REF_NAME does not match version.Current ($declared)" >&2
+            echo "  bump the constant and re-tag, or tag $declared" >&2
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches version.Current"
+
+      - name: gofmt
+        working-directory: ${{ env.CLI_DIR }}
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "error: not gofmt-clean:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: go vet
+        working-directory: ${{ env.CLI_DIR }}
+        run: go vet ./...
+
+      # The whole suite, on the artefact that is about to be published. Failures
+      # are counted by go test's own exit code; nothing here greps for PASS.
+      - name: go test
+        working-directory: ${{ env.CLI_DIR }}
+        run: go test ./...
+
+      # One job, five targets, one loop. Go cross-compiles without a runner per
+      # platform, and doing it in one place means the checksums file is produced
+      # from the same binaries in the same step.
+      - name: Cross-compile
+        working-directory: ${{ env.CLI_DIR }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          sha=$(echo "$GITHUB_SHA" | cut -c1-7)
+          ldflags="-s -w -X ${MODULE}/internal/version.Commit=${sha} -X ${MODULE}/internal/version.Built=${built}"
+          while read -r goos goarch asset; do
+            [ -n "$goos" ] || continue
+            echo "building $asset"
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "$ldflags" -o "dist/$asset" .
+          done <<'TARGETS'
+          windows amd64 endurance_windows_amd64.exe
+          darwin  arm64 endurance_darwin_arm64
+          darwin  amd64 endurance_darwin_amd64
+          linux   amd64 endurance_linux_amd64
+          linux   arm64 endurance_linux_arm64
+          TARGETS
+          ls -l dist
+
+      # Built on this runner, so this one can be run here: the artefact that
+      # says it is the release has to say the right version when asked.
+      - name: The published linux binary reports the tag
+        working-directory: ${{ env.CLI_DIR }}
+        run: |
+          got=$(./dist/endurance_linux_amd64 version --short)
+          if [ "$got" != "endurance $GITHUB_REF_NAME" ]; then
+            echo "error: the built binary reports '$got', not 'endurance $GITHUB_REF_NAME'" >&2
+            exit 1
+          fi
+          ./dist/endurance_linux_amd64 version | sed -n '1,20p'
+
+      # sha256sum format, because that is what install.sh reads with the tool
+      # every Linux machine already has. The file lists bare asset names, so it
+      # verifies wherever it is downloaded to.
+      - name: Checksums
+        working-directory: ${{ env.CLI_DIR }}/dist
+        run: |
+          sha256sum endurance_* > checksums.txt
+          cat checksums.txt
+
+      # install.sh is attached as well as living in main. The curl line points
+      # at main so the script somebody pipes into bash is the reviewable one;
+      # the copy here is for anyone who wants the script and the binaries pinned
+      # to each other.
+      - name: Attach install.sh
+        run: |
+          bash -n gc-industries-devops-superheros/install.sh
+          cp gc-industries-devops-superheros/install.sh "$CLI_DIR/dist/install.sh"
+
+      - name: Publish
+        working-directory: ${{ env.CLI_DIR }}/dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          ## Install
+
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/gc-ghub/project-gc-industries-devops-superheros/main/gc-industries-devops-superheros/install.sh | bash
+          endurance doctor
+          ```
+
+          The installer downloads one binary for your machine, checks it against
+          `checksums.txt` below, puts it on PATH and runs it. It installs nothing
+          else — Docker, kind, kubectl, helm and istioctl are what `endurance
+          doctor` reports on, and `endurance uninstall` removes the binary again.
+
+          Pin this release instead of the latest one:
+
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/gc-ghub/project-gc-industries-devops-superheros/main/gc-industries-devops-superheros/install.sh | ENDURANCE_VERSION=TAG bash
+          ```
+          NOTES
+          sed -i "s/ENDURANCE_VERSION=TAG/ENDURANCE_VERSION=$GITHUB_REF_NAME/" notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Endurance $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            endurance_* checksums.txt install.sh

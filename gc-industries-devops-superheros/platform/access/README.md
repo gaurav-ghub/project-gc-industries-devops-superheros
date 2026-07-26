@@ -60,21 +60,47 @@ renders a link is the component that is told its own address.
 
 ## Applications
 
-The platform does **not** route applications. An application declares a route in
-`specs/<app>.yaml`:
+The platform does **not** route applications. An application declares its
+addresses in `specs/<app>.yaml`, one entry per path:
 
 ```yaml
-route:
-  enabled: true
-  path: /
-  service: frontend
+routes:
+  - path: /
+    service: frontend
+  - path: /api/catalog
+    service: catalog
+  - path: /api/pay
+    service: payment
+    rewrite: /pay        # the service answers /pay; the platform mounted it at /api/pay
 ```
 
-`endurance onboard` renders that into `apps/<app>/values.yaml`, `charts/app`
-turns it into a VirtualService bound to `istio-system/endurance-gateway`, and
+`endurance onboard` renders those into `apps/<app>/values.yaml`, `charts/app`
+turns them into one VirtualService bound to `istio-system/endurance-gateway`, and
 ArgoCD applies it. Nothing in this directory knows an application's URL
 structure — which is the property that lets the platform serve an application it
 has never seen.
+
+Three things the generator does that are worth knowing, because Istio will not
+tell you when they are wrong:
+
+- **The list is sorted longest-path-first**, so `/` cannot shadow what is under
+  it. Istio takes the first matching prefix, so a root rule above
+  `/api/catalog` swallows it and the API answers with the SPA's `index.html` —
+  a valid VirtualService, a Synced application, and a page that never loads.
+  `endurance onboard` writes the sorted order back into the values file, so what
+  a reviewer reads is the order Istio will use.
+- **A route to a canary service carries its weights inline.** The canary
+  VirtualService in `charts/app/templates/istio.yaml` binds to no gateway, which
+  makes it mesh-internal — enforced by a calling pod's sidecar, and a browser is
+  not one. Without the weights here, a traffic split would be real for in-mesh
+  callers and fiction for the person looking at the page.
+- **Every route in the list shares one gateway**, because one VirtualService
+  binds to one set of gateways. Two entries naming different gateways are
+  refused rather than silently resolved.
+
+The singular `route:` is still accepted and is exactly a `routes:` list of one.
+Declaring both is refused — two spellings of one fact, with no way to tell which
+was meant.
 
 ## Running it on its own
 

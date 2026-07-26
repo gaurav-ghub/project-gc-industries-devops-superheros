@@ -68,8 +68,15 @@ func TestComponentsReadTheRealVersionFiles(t *testing.T) {
 			t.Errorf("%s: no version read from %s", name, c.Source)
 		}
 	}
-	if got := comps["endurance CLI"].Version; got != version.Current {
-		t.Errorf("CLI version = %q, want %q", got, version.Current)
+	// The CLI is deliberately not a component: `endurance version` opens with a
+	// "This build" section that reports it, and reports whether the binary came
+	// from a release, which a row in this list cannot.
+	if _, ok := comps["endurance CLI"]; ok {
+		t.Error("the CLI is listed as a component the platform installs; " +
+			"it is reported by buildCheck, and two rows for one version is how a screen disagrees with itself")
+	}
+	if c := buildCheck(); !strings.Contains(c.Name, version.Current) {
+		t.Errorf("the build section does not name the version: %q", c.Name)
 	}
 
 	// istio is read twice by two different code paths (here and by doctor);
@@ -81,6 +88,86 @@ func TestComponentsReadTheRealVersionFiles(t *testing.T) {
 	if comps["istio"].Version != declared {
 		t.Errorf("istio: version %q but doctor compares against %q",
 			comps["istio"].Version, declared)
+	}
+}
+
+// TestADevBuildDoesNotReportItselfAsARelease.
+//
+// version.Current is a constant, so a working tree and the release cut from it
+// print the same number — correct for the release and a claim the working tree
+// has not earned. The stamp is what tells them apart, and this asserts both
+// halves of it, including that a `go test` binary is honestly a dev build.
+func TestADevBuildDoesNotReportItselfAsARelease(t *testing.T) {
+	if version.IsRelease() {
+		t.Fatal("this test binary carries a release stamp — the dev case cannot be checked")
+	}
+	dev := buildCheck()
+	if dev.State != render.StatePending {
+		t.Errorf("a dev build renders %v; it should be `·` — building from the repo is the "+
+			"normal thing to do while working on it, and warning about the normal case is noise",
+			dev.State)
+	}
+	if !strings.Contains(dev.Note, "dev build") {
+		t.Errorf("a dev build does not say so: %q", dev.Note)
+	}
+
+	// The release case, stamped the way the workflow stamps it.
+	t.Cleanup(func() { version.Commit, version.Built = "", "" })
+	version.Commit, version.Built = "abc1234", "2026-07-26T00:00:00Z"
+
+	rel := buildCheck()
+	if rel.State != render.StateReady {
+		t.Errorf("a release build renders %v, want ✓", rel.State)
+	}
+	if !strings.Contains(rel.Note, "abc1234") || !strings.Contains(rel.Note, "2026-07-26") {
+		t.Errorf("a release build does not name the commit and date it came from: %q", rel.Note)
+	}
+	if strings.Contains(rel.Note, "dev build") {
+		t.Errorf("a stamped build still calls itself a dev build: %q", rel.Note)
+	}
+}
+
+// TestVersionShortIsParsableWithNoRepo — the sibling of
+// TestVersionShortIsOneLine below, and the case that is new in Phase 12.
+//
+// install.sh reads `version --short` to decide whether it is upgrading,
+// downgrading or reinstalling, and it reads it from a binary sitting in a temp
+// directory on a machine that has never seen this project. So it must answer
+// without a repo, in exactly one line, and it must not grow a provenance suffix
+// that a `cut` would then have to know about — which is why the dev/release
+// distinction lives in the long form only.
+func TestVersionShortIsParsableWithNoRepo(t *testing.T) {
+	buf := capture(t)
+	if err := Version(t.TempDir(), true); err != nil {
+		t.Fatalf("version --short outside a repo: %v", err)
+	}
+	got := strings.TrimSpace(buf.String())
+	if got != "endurance "+version.Current {
+		t.Errorf("version --short = %q, want %q", got, "endurance "+version.Current)
+	}
+	if strings.Contains(got, "\n") {
+		t.Errorf("version --short printed more than one line: %q", got)
+	}
+}
+
+// TestVersionAnswersOnAMachineWithNoRepo. Since Phase 12 this is the first
+// command a stranger runs: `curl … | bash` puts one binary on PATH and nothing
+// else. It used to print one apologetic line, because the whole command was
+// about the repo.
+func TestVersionAnswersOnAMachineWithNoRepo(t *testing.T) {
+	buf := capture(t)
+	if err := Version(t.TempDir(), false); err != nil {
+		t.Fatalf("version outside a repo: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, version.Current) {
+		t.Errorf("version outside a repo does not report the version:\n%s", out)
+	}
+	if !strings.Contains(out, "This build") {
+		t.Errorf("version outside a repo skipped the part it can always answer:\n%s", out)
+	}
+	if !strings.Contains(out, "no platform repo here") {
+		t.Errorf("version outside a repo does not say the components are missing:\n%s", out)
 	}
 }
 

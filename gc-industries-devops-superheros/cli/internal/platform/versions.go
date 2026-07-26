@@ -187,8 +187,13 @@ func Components(root string) []Component {
 		kiali.Note = "no version pinned in " + accessVersions
 	}
 
+	// The CLI is not on this list. It used to be, and since Phase 12 the screen
+	// opens with a "This build" section that says the same number and one more
+	// thing this list cannot — whether the binary came from a release. Two rows
+	// carrying one version is how a screen starts disagreeing with itself.
+	// Components is what the *platform* installs; the binary reading the files
+	// is not one of them.
 	return []Component{
-		{Name: "endurance CLI", Version: version.Current, Source: "cli/internal/version"},
 		{Name: "platform", Version: platformVersion, Source: versionFile},
 		{Name: "istio", Version: net.Istio.Version, Source: "platform/networking/versions.yaml"},
 		{Name: "kube-prometheus-stack", Version: mon.Prometheus.Version, Source: "platform/monitoring/versions.yaml"},
@@ -201,23 +206,35 @@ func Components(root string) []Component {
 
 // Version prints `endurance version`. Short prints the one line a script wants
 // and nothing else.
+//
+// The order matters more than it looks. Since Phase 12 this command is the
+// first thing somebody runs on a machine that has never seen the platform
+// repo — `curl … | bash` puts the binary on PATH and nothing else — so the two
+// halves are separated: what this binary is, which is always answerable, and
+// what the platform installs, which needs the repo. The repo half used to be
+// the whole command, and on a stranger's machine it printed one apologetic
+// line.
 func Version(root string, short bool) error {
-	line := "endurance " + version.Current
 	if short {
-		render.Print(line)
+		// Deliberately bare. install.sh parses this to decide whether it is
+		// upgrading or downgrading, and a script wants the number.
+		render.Print("endurance " + version.Current)
 		return nil
 	}
 
 	render.Banner(version.Current)
-	render.Section("Components")
+	render.Section("This build")
+	render.Checks([]render.Check{buildCheck()})
+	render.Blank()
 
 	dir, err := FindRoot(root)
 	if err != nil {
-		render.Print(line)
-		render.Info("no platform repo found here — component versions live in its versions.yaml files")
+		render.Info("no platform repo here — component versions live in its versions.yaml files")
+		render.Detail("`endurance doctor` checks this machine · the platform repo is what `endurance init` needs")
 		return nil
 	}
 
+	render.Section("Components")
 	checks := make([]render.Check, 0, len(Components(dir)))
 	for _, c := range Components(dir) {
 		checks = append(checks, c.check())
@@ -226,6 +243,28 @@ func Version(root string, short bool) error {
 	render.Blank()
 	render.Info("these are the versions this platform installs · `endurance status` shows what is running")
 	return nil
+}
+
+// buildCheck reports what this binary is, as opposed to what it declares.
+//
+// A release build is a ✓: the workflow refused to publish it unless its tag and
+// version.Current agreed, and it carries the commit it was built from. Anything
+// else is a `·`, not a ⚠ — building the CLI from the repo is the normal thing
+// to do while working on it, and the Phase 9 rule is that warning about the
+// normal case is how a warning becomes noise. It is still worth saying, because
+// the number on the banner is the same either way and only one of the two
+// binaries came from a release.
+func buildCheck() render.Check {
+	c := render.Check{
+		Name: "endurance " + version.Current,
+		Note: version.Provenance(),
+	}
+	if version.IsRelease() {
+		c.State = render.StateReady
+	} else {
+		c.State = render.StatePending
+	}
+	return c
 }
 
 // check renders one component: pinned is a ✓, unpinned is a ⚠ because it is a
