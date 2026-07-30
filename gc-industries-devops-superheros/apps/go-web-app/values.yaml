@@ -1,0 +1,31 @@
+# Values for charts/app — rendered by Endurance
+---
+app:
+    name: go-web-app
+route:
+    enabled: true
+    path: /go-web-app
+    service: go-web-app
+    port: 8080
+    gateway: istio-system/endurance-gateway
+services:
+    - name: go-web-app
+      image: docker.io/dockergc00/stark-industries-go-web-app
+      tag: v1
+      port: 8080
+      replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
