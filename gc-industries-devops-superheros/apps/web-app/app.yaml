@@ -1,0 +1,33 @@
+# Endurance registry entry — do not edit by hand; use `endurance onboard`
+---
+name: web-app
+namespace: web-app
+repository: ""
+owner: Gaurav Chaurasia
+route:
+    enabled: true
+    path: /web-app
+    service: web-app
+    port: 8080
+    gateway: istio-system/endurance-gateway
+services:
+    - name: web-app
+      image: docker.io/nginxinc/nginx-unprivileged
+      tag: stable-alpine
+      port: 8080
+      replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
