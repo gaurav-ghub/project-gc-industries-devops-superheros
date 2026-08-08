@@ -3,7 +3,7 @@
 name: bad-app
 namespace: bad-app
 repository: ""
-owner: Gaurav Chaurasia
+owner: gc-ghub
 route:
     enabled: true
     path: /bad-app
@@ -12,8 +12,8 @@ route:
     gateway: istio-system/endurance-gateway
 services:
     - name: bad-app
-      image: docker.io/dockergc00/bad-app
-      tag: v1
+      image: docker.io/gauravghub/nothing-here
+      tag: v9
       port: 8080
       replicas: 1
       resources:
