@@ -4,8 +4,6 @@ name: my-app
 namespace: my-app
 repository: ""
 owner: gc-ghub
-mesh:
-    enabled: true
 route:
     enabled: true
     path: /my-app

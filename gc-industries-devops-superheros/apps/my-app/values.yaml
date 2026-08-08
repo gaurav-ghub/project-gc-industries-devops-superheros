@@ -2,8 +2,6 @@
 ---
 app:
     name: my-app
-mesh:
-    enabled: true
 route:
     enabled: true
     path: /my-app
