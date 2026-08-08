@@ -1,5 +1,5 @@
 ▸ Creating the kind cluster
-✓ Creating the kind cluster  kind-superheros · 1 node  12.3s
+✓ Creating the kind cluster  kind-endurance · 1 node  12.3s
 ▸ Installing Istio
   istioctl 1.23.0
 ✓ Installing Istio  900ms

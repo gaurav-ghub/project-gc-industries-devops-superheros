@@ -220,7 +220,7 @@ func Generate(root string, app spec.App, gitopsRepo, pathPrefix string) ([]strin
 		Namespace:     app.Namespace,
 		Repo:          gitopsRepo,
 		Prefix:        pathPrefix,
-		Mesh:          app.Mesh.Enabled,
+		Mesh:          app.Mesh.On(),
 		Subscriptions: Subscriptions(app.Notify),
 	}); err != nil {
 		return nil, err

@@ -158,7 +158,7 @@ func (s *LiveStep) StreamWith(filter func(line string) bool) *Stream {
 func (s *LiveStep) Done() { s.finish(StateReady, "") }
 
 // DoneWith finishes the step successfully and records one closing fact —
-// "cluster kind-superheros, 1 node" — beside the ✓.
+// "cluster kind-endurance, 1 node" — beside the ✓.
 func (s *LiveStep) DoneWith(note string) { s.finish(StateReady, note) }
 
 // Skip finishes the step as not-run, with the reason. A skipped step is not a

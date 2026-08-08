@@ -42,7 +42,7 @@ func TestPreview(t *testing.T) {
 	p := r.NewProgress("Bootstrapping the platform", bootstrapSteps...)
 	s := p.Start("Creating the kind cluster")
 	c.advance(12 * time.Second)
-	s.DoneWith("kind-superheros · 1 node")
+	s.DoneWith("kind-endurance · 1 node")
 
 	s = p.Start("Installing Istio")
 	out := s.Stream()

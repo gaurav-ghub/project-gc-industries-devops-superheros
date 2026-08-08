@@ -39,7 +39,7 @@ func TestPreview(t *testing.T) {
 		Name:      "superheros",
 		Namespace: "superheros",
 		Owner:     "gc-industries",
-		Mesh:      spec.Mesh{Enabled: true},
+		Mesh:      spec.MeshOn(),
 		Route:     spec.Route{Enabled: true, Path: "/", Service: "frontend"},
 		Services: []spec.Service{
 			{Name: "frontend", Image: "docker.io/dockergc00/superheros-frontend", Tag: "v1-9c6f729", Port: 80, Replicas: 1},

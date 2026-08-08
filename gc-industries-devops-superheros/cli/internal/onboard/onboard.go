@@ -31,6 +31,11 @@ type Options struct {
 	SkipPolicy bool   // break glass: report policy violations but do not block
 	NoNotify   bool   // do not send the CLI notification
 
+	// NoMesh sets the default the mesh question opens on. It only reaches the
+	// interactive path: a spec file passed with --from has already answered the
+	// question, and a flag must not silently overrule a file.
+	NoMesh bool
+
 	// NoBanner suppresses the product banner, for a caller that has already
 	// drawn one. `endurance init` onboards as one phase of a longer run.
 	NoBanner bool
@@ -50,6 +55,12 @@ func Run(opts Options) error {
 	}
 
 	app := spec.App{}
+	// Defaulted true and bound to the form, so the answer written into the spec
+	// is the one the user was shown rather than one nobody was offered. Until
+	// Phase 13 this form had no mesh question at all, which is why every
+	// application onboarded through it ran outside a mesh the platform is built
+	// out of.
+	mesh := !opts.NoMesh
 	appForm := prompt.Form(
 		huh.NewGroup(
 			huh.NewInput().Title("Application name").
@@ -65,6 +76,10 @@ func Run(opts Options) error {
 				Value(&app.Repository),
 			huh.NewInput().Title("Owner / team").
 				Value(&app.Owner),
+			huh.NewConfirm().Title("Put it in the service mesh?").
+				Description("Istio sidecars · needed for canary and for Kiali to see it · adds one container per pod").
+				Affirmative("Yes").Negative("No").
+				Value(&mesh),
 		),
 	)
 	if err := appForm.Run(); err != nil {
@@ -72,6 +87,11 @@ func Run(opts Options) error {
 	}
 	if app.Namespace == "" {
 		app.Namespace = app.Name
+	}
+	if mesh {
+		app.Mesh = spec.MeshOn()
+	} else {
+		app.Mesh = spec.MeshOff()
 	}
 
 	// Collect one or more services.
@@ -207,7 +227,12 @@ func finish(opts Options, app spec.App) error {
 			"  (" + strings.Join(app.Notify.StageNames(), ", ") + ")"})
 		next = append(next, "endurance notify status "+app.Name+"   to see who hears about it and when")
 	}
-	if app.Mesh.Enabled {
+	if !app.Mesh.On() {
+		// Said out loud rather than left off the screen. Being outside the mesh
+		// is now a choice somebody made at a prompt, and the closing box is
+		// where they find out it took.
+		rows = append(rows, [2]string{"Mesh", "none — pods run without a sidecar, and Kiali will not see this application"})
+	} else {
 		rows = append(rows, [2]string{"Mesh", "istio — namespace gets istio-injection=enabled"})
 		// Applying the Application by hand is already the documented step, but
 		// it is easy to skip on a re-onboard, and the namespace label is the one

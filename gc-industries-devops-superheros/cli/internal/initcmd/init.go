@@ -118,6 +118,7 @@ type Options struct {
 	Path    string
 	Port    int
 	NoRoute bool
+	NoMesh  bool
 
 	// GitopsRepo is the URL of the platform repo ArgoCD watches — not the
 	// developer's application source repo above. Empty means "work it out":
@@ -189,6 +190,12 @@ type Answers struct {
 	Repo  string
 	Path  string
 	Route bool
+
+	// Mesh is Istio membership, and it is the answer that used to be missing
+	// rather than defaulted. Nothing asked, so nothing ever said yes, so every
+	// pod of every application anybody onboarded ran without a sidecar on a
+	// platform built entirely out of Istio (Phase 13).
+	Mesh bool
 
 	AI          bool
 	OpenAIKey   string
@@ -425,6 +432,7 @@ func collect(opts Options, root string) (Answers, error) {
 		Owner: firstNonEmpty(opts.Owner, gitUser(root)),
 		Repo:  opts.Repo,
 		Route: !opts.NoRoute,
+		Mesh:  !opts.NoMesh,
 	}
 	if opts.Port > 0 {
 		defaults.Port = opts.Port
@@ -521,6 +529,15 @@ func askApplication(a *Answers, d Answers) error {
 			huh.NewInput().Title("Source repository").
 				Description("optional · recorded in the registry entry, nothing is cloned from it").
 				Value(&a.Repo),
+			// Asked, and asked here rather than among the capabilities, because
+			// it is a property of the application rather than a credential to
+			// hand over. Yes is the default and the answer almost everybody
+			// wants: the platform is Istio, and an application outside the mesh
+			// is invisible to Kiali and cannot shift traffic.
+			huh.NewConfirm().Title("Put it in the service mesh?").
+				Description("Istio sidecars · needed for canary and for Kiali to see it · adds one container per pod").
+				Affirmative("Yes").Negative("No").
+				Value(&a.Mesh),
 		),
 
 		// The two capabilities. Asked as a yes/no first so that declining costs
@@ -736,6 +753,7 @@ func buildPlan(root string, cluster platform.ClusterState, health platform.Healt
 		if u := existing.URL(base); u != "" {
 			appDetails = append(appDetails, "reachable at "+u+" via "+existing.Route.Service)
 		}
+		appDetails = append(appDetails, meshDetail(existing.Mesh.On()))
 		if c := existing.CanaryServices(); len(c) > 0 {
 			appDetails = append(appDetails, "canary: "+strings.Join(c, ", "))
 		}
@@ -759,6 +777,7 @@ func buildPlan(root string, cluster platform.ClusterState, health platform.Healt
 			appDetails = append(appDetails, "reachable at "+url+" via "+a.Name)
 		}
 		appDetails = append(appDetails,
+			meshDetail(a.Mesh),
 			"writes specs/"+a.Name+".yaml and apps/"+a.Name+"/{app,application,values}.yaml",
 			"the manifests are checked against this platform's Kyverno policies first")
 	}
@@ -812,6 +831,19 @@ func buildPlan(root string, cluster platform.ClusterState, health platform.Healt
 		p.Warn = append(p.Warn, "kind-config.yaml does not declare the host port — the addresses above are a guess")
 	}
 	return p
+}
+
+// meshDetail is the plan's one line about Istio.
+//
+// It is a plan line rather than a skip line in both directions on purpose. Being
+// in the mesh changes what runs — a second container in every pod — and the
+// confirmation screen is where a user finds out what they are about to get. The
+// previous behaviour was to get neither the sidecar nor the sentence.
+func meshDetail(on bool) string {
+	if on {
+		return "in the Istio mesh · a sidecar per pod, so pods read 2/2 · visible in Kiali"
+	}
+	return "outside the Istio mesh · no sidecar, no Kiali graph, no weighted routing"
 }
 
 // printPlan draws the confirmation screen.
@@ -917,6 +949,12 @@ func specYAML(a Answers) string {
 	if a.Owner != "" {
 		b.WriteString("owner: " + yamlScalar(a.Owner) + "\n")
 	}
+	b.WriteString("\n# Istio. On unless you say otherwise: the platform routes everything through\n")
+	b.WriteString("# the Istio ingress gateway and ships Kiali to visualise the mesh, so an\n")
+	b.WriteString("# application outside it is invisible there and cannot shift traffic between\n")
+	b.WriteString("# weighted versions. Every pod gains a sidecar container, so pods read 2/2.\n")
+	b.WriteString("mesh:\n")
+	b.WriteString("  enabled: " + strconv.FormatBool(a.Mesh) + "\n")
 	if a.Route {
 		b.WriteString("\n# The application's public address. The platform owns one Istio Gateway and\n")
 		b.WriteString("# deliberately knows nothing about what is behind any path on it — an\n")
@@ -939,6 +977,16 @@ func specYAML(a Answers) string {
 	return b.String()
 }
 
+// meshAnswer turns init's yes/no into the spec's tri-state. Always an explicit
+// answer, never absent: a user who was asked has answered, and the spec file is
+// the record of what they said.
+func meshAnswer(on bool) spec.Mesh {
+	if on {
+		return spec.MeshOn()
+	}
+	return spec.MeshOff()
+}
+
 // toSpec is the in-memory equivalent, for validating the answers before the
 // plan is printed.
 func toSpec(a Answers) spec.App {
@@ -947,6 +995,7 @@ func toSpec(a Answers) spec.App {
 		Namespace:  a.Name,
 		Repository: a.Repo,
 		Owner:      a.Owner,
+		Mesh:       meshAnswer(a.Mesh),
 		Services: []spec.Service{{
 			Name: a.Name, Image: a.Image, Tag: a.Tag, Port: a.Port, Replicas: 1,
 		}},

@@ -9,7 +9,7 @@ func canaryApp() App {
 	return App{
 		Name:      "superheros",
 		Namespace: "superheros",
-		Mesh:      Mesh{Enabled: true},
+		Mesh:      MeshOn(),
 		Services: []Service{
 			{Name: "frontend", Image: "docker.io/x/frontend", Tag: "v1", Port: 80, Replicas: 1},
 			{Name: "catalog", Image: "docker.io/x/catalog", Port: 8081, Versions: []Version{
@@ -146,7 +146,7 @@ func TestMeshWarningWhenCanaryWithoutMesh(t *testing.T) {
 	if w := app.MeshWarnings(); len(w) != 0 {
 		t.Errorf("warned about a correctly configured canary: %v", w)
 	}
-	app.Mesh.Enabled = false
+	app.Mesh = MeshOff()
 	w := app.MeshWarnings()
 	if len(w) != 1 || !strings.Contains(w[0], "catalog") {
 		t.Errorf("MeshWarnings = %v, want one warning naming catalog", w)

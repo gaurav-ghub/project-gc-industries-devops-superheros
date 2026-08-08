@@ -3,6 +3,7 @@ package platform
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -31,6 +32,34 @@ func TestShellVarReadsThePlatformIdentity(t *testing.T) {
 	}
 	if got := ClusterName(root); got != name {
 		t.Errorf("ClusterName = %q, want %q", got, name)
+	}
+}
+
+// TestTheClusterIsNamedAfterThePlatformNotAnApplication pins Phase 13's
+// smallest change and its most-repeatable mistake.
+//
+// The cluster was called `superheros`, which is the reference application, so
+// the first run that deployed three *other* applications announced
+// `Cluster kind-superheros` on every screen and left the reader to work out
+// that none of the three was it. The name is a fact about the platform.
+//
+// The check is structural rather than a literal string, because the way this
+// recurs is not by reverting the edit — it is by somebody onboarding the next
+// flagship application and naming the cluster after that one instead.
+func TestTheClusterIsNamedAfterThePlatformNotAnApplication(t *testing.T) {
+	root := repoRoot(t)
+	name := ClusterName(root)
+
+	entries, err := os.ReadDir(filepath.Join(root, "apps"))
+	if err != nil {
+		t.Skipf("no apps/ directory to compare against: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() && e.Name() == name {
+			t.Errorf("CLUSTER_NAME is %q, and apps/%s is an application onboarded onto it — "+
+				"the cluster is named after the platform, not after one of the applications on it",
+				name, e.Name())
+		}
 	}
 }
 

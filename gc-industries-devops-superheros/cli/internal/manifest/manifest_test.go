@@ -31,7 +31,7 @@ func sample() spec.App {
 // versions, with the mesh on.
 func canarySample() spec.App {
 	app := sample()
-	app.Mesh = spec.Mesh{Enabled: true}
+	app.Mesh = spec.MeshOn()
 	i := app.FindService("catalog")
 	app.Services[i].Tag = ""
 	app.Services[i].Replicas = 0
@@ -105,11 +105,14 @@ func TestCanaryServiceSelectorIgnoresVersion(t *testing.T) {
 	t.Fatal("no catalog Service rendered")
 }
 
-// The mesh objects exist only when the application asked for the mesh. Without
-// the sidecars they would be inert configuration that looks like it works.
+// The mesh objects exist only when the application is in the mesh. Without the
+// sidecars they would be inert configuration that looks like it works.
+//
+// Since Phase 13 an application is in the mesh unless it says otherwise, so
+// this is the opted-out case rather than the ordinary one.
 func TestMeshObjectsRequireMeshEnabled(t *testing.T) {
 	app := canarySample()
-	app.Mesh.Enabled = false
+	app.Mesh = spec.MeshOff()
 	for _, r := range Render(app) {
 		if r.Kind == "VirtualService" || r.Kind == "DestinationRule" {
 			t.Errorf("rendered %s/%s with mesh disabled", r.Kind, r.Name)
@@ -236,7 +239,7 @@ func assertChartConformance(t *testing.T, app spec.App) {
 
 	values := map[string]any{
 		"app":      map[string]any{"name": app.Name},
-		"mesh":     map[string]any{"enabled": app.Mesh.Enabled},
+		"mesh":     map[string]any{"enabled": app.Mesh.On()},
 		"services": app.Services,
 	}
 	if app.Route.Enabled {

@@ -132,7 +132,7 @@ func TestProgressSkipsAndFailsGolden(t *testing.T) {
 
 	s := p.Start("Creating the kind cluster")
 	c.advance(12 * time.Second)
-	s.DoneWith("kind-superheros")
+	s.DoneWith("kind-endurance")
 
 	// Istio was already there — jump straight to monitoring.
 	s = p.Start("Installing monitoring")

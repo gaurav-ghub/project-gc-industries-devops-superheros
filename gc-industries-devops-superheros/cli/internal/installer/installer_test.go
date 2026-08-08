@@ -491,7 +491,8 @@ func TestReinstallingSaysWhatItReplaced(t *testing.T) {
 	// Second run, with the first install visible on PATH — which is what makes
 	// it a reinstall rather than a fresh one.
 	shellDir := posixPath(t, bash, dir)
-	out := runInstaller(t, bash, script, srv.URL, dir, []string{"PATH=" + shellDir + ":" + shellPath(t, bash)})
+	out := runInstaller(t, bash, script, srv.URL, dir,
+		[]string{"PATH=" + shellDir + ":" + pathWithoutEndurance(t, bash)})
 	if !strings.Contains(out, "Reinstalling "+ver) {
 		t.Errorf("re-running the installer over the same version did not say so:\n%s", out)
 	}
@@ -603,16 +604,6 @@ func posixPath(t *testing.T, bash, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// shellPath is $PATH as the shell has it, which on Windows is not os.Getenv.
-func shellPath(t *testing.T, bash string) string {
-	t.Helper()
-	out, err := exec.Command(bash, "-c", `printf '%s' "$PATH"`).Output()
-	if err != nil {
-		t.Fatalf("asking the shell for PATH: %v", err)
-	}
-	return strings.TrimSpace(string(out))
-}
-
 func installedName() string {
 	if runtime.GOOS == "windows" {
 		return "endurance.exe"
@@ -653,10 +644,48 @@ func tryInstaller(t *testing.T, bash, script, base, dir string, env []string) (s
 	cmd.Env = append(os.Environ(),
 		"ENDURANCE_BASE_URL="+base,
 		"ENDURANCE_INSTALL_DIR="+dir,
+		// The host's own `endurance` is not part of any of these tests, and it
+		// changes their answers. install.sh opens by asking `command -v
+		// endurance` what is already here, so on a machine where somebody has
+		// installed the CLI — which is every machine this project is developed
+		// on — a *first* install announces itself as a reinstall and the
+		// end-of-run conflict warning fires against a stranger's binary. Green
+		// here, red on a CI runner, or the reverse; either way the test was
+		// asking the host a question it does not control, which is the fault
+		// Phase 12 shipped a broken release over and Phase 13 found still here.
+		//
+		// Set before env, so a test that deliberately builds a PATH — the
+		// reinstall and upgrade cases — still wins. os/exec keeps the last of a
+		// duplicated variable.
+		"PATH="+pathWithoutEndurance(t, bash),
 	)
 	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// pathWithoutEndurance is the shell's $PATH with every directory that holds an
+// `endurance` binary removed.
+//
+// Filtered by the shell rather than by Go: on git-bash the entries are
+// /c/Users/me/bin, which os.Stat cannot resolve, and converting them back would
+// be a second guess at a question the shell can answer directly.
+func pathWithoutEndurance(t *testing.T, bash string) string {
+	t.Helper()
+	const filter = `
+		out=""
+		IFS=:
+		for d in $PATH; do
+			if [ -x "$d/endurance" ] || [ -x "$d/endurance.exe" ]; then continue; fi
+			out="${out:+$out:}$d"
+		done
+		printf '%s' "$out"
+	`
+	out, err := exec.Command(bash, "-c", filter).Output()
+	if err != nil {
+		t.Fatalf("filtering PATH: %v", err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // currentVersion reads the version the CLI declares, out of the source, so this

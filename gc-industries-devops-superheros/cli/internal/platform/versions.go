@@ -137,11 +137,16 @@ func expandShell(file, value string, depth int) string {
 // ClusterName and ContextName are the kind cluster the platform lives in, read
 // from platform/lib/version.sh so bash and Go cannot disagree about which
 // cluster `destroy` deletes.
+//
+// The fallback is only reached when version.sh is unreadable, and it is the
+// platform's name rather than an application's: a `destroy` that cannot read
+// the file should offer to delete a cluster named after the platform, not one
+// named after whatever was deployed on it first (Phase 13).
 func ClusterName(root string) string {
 	if v, err := shellVar(root, versionFile, "CLUSTER_NAME"); err == nil && v != "" {
 		return v
 	}
-	return "superheros"
+	return "endurance"
 }
 
 func ContextName(root string) string {

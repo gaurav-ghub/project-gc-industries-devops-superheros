@@ -1,7 +1,7 @@
 
 ── Bootstrapping the platform ────────────────────────────
 [1/6] ░░░░░░░░░░ Creating the kind cluster
-[1/6] ✓ Creating the kind cluster  kind-superheros  12.0s
+[1/6] ✓ Creating the kind cluster  kind-endurance  12.0s
 [2/6] · Installing Istio  skipped
 [3/6] █░░░░░░░░░ Installing monitoring
 [3/6] ✓ Installing monitoring  30.0s

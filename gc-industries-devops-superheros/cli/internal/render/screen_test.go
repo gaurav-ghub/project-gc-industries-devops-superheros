@@ -17,7 +17,7 @@ func superherosResult() Result {
 		Title: "superheros is deploying",
 		Rows: [][2]string{
 			{"Namespace", "superheros"},
-			{"Cluster", "kind-superheros"},
+			{"Cluster", "kind-endurance"},
 			{"Services", "5  (frontend, catalog, orders, inventory, payment)"},
 			{"Image", "docker.io/gcghub/superhero-frontend:v1.4.2"},
 			{"Replicas", "1 per service"},

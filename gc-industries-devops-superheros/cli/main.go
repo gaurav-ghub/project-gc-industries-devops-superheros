@@ -125,6 +125,7 @@ func cmdInit(args []string) error {
 	path := fs.String("path", "", "URL path on the platform's host (default: / if free, else /<app>)")
 	port := fs.Int("port", 0, "container port (default: "+fmt.Sprint(initcmd.DefaultPort)+")")
 	noRoute := fs.Bool("no-route", false, "do not give the application a URL")
+	noMesh := fs.Bool("no-mesh", false, "keep the application out of the Istio mesh (no sidecars)")
 	yes := fs.Bool("yes", false, "accept the plan without confirming")
 	dryRun := fs.Bool("dry-run", false, "print the plan and stop")
 	skipBootstrap := fs.Bool("skip-bootstrap", false, "the platform is already up; do not check")
@@ -135,7 +136,7 @@ func cmdInit(args []string) error {
 	}
 	return initcmd.Run(initcmd.Options{
 		Root: *root, Name: *name, Image: *image, Tag: *tag, Owner: *owner,
-		Repo: *repo, Path: *path, Port: *port, NoRoute: *noRoute,
+		Repo: *repo, Path: *path, Port: *port, NoRoute: *noRoute, NoMesh: *noMesh,
 		GitopsRepo: *gitopsRepo,
 		Yes:        *yes, DryRun: *dryRun, SkipBootstrap: *skipBootstrap,
 		NoWait: *noWait, Timeout: *timeout,
@@ -285,10 +286,11 @@ func cmdOnboard(args []string) error {
 	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
 	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
 	noNotify := fs.Bool("no-notify", false, "do not send the CLI notification for this run")
+	noMesh := fs.Bool("no-mesh", false, "keep the application out of the Istio mesh (interactive default; --from obeys the file)")
 	_ = fs.Parse(args)
 	return onboard.Run(onboard.Options{
 		Root: *root, GitopsRepo: *repo, Commit: *commit, From: *from, PathPrefix: *prefix,
-		PolicyDir: *policyDir, SkipPolicy: *skipPolicy, NoNotify: *noNotify,
+		PolicyDir: *policyDir, SkipPolicy: *skipPolicy, NoNotify: *noNotify, NoMesh: *noMesh,
 	})
 }
 
@@ -705,6 +707,7 @@ Init flags:
   --app-repo <url>      the application's own source repo, recorded only
   --owner <team>        default: git config user.name
   --no-route            do not give the application a URL
+  --no-mesh             keep it out of the Istio mesh (default: in it, one sidecar per pod)
   --yes                 accept the plan without confirming
   --dry-run             print the plan and stop
   --skip-bootstrap      the platform is already up; do not check

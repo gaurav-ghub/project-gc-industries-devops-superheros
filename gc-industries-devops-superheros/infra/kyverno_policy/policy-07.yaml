@@ -1,3 +1,15 @@
+## Every application namespace, not one of them — see policy-01.yaml for why the
+## `namespaces:` selector was removed in Phase 13 and what the exclude list is
+## doing in its place.
+##
+## The range moved with the scope, and deliberately. `>=1 & <=1` was a sane rule
+## for one demo application on a two-worker kind cluster and is not a sane rule
+## for every application on the platform: it would make the `Replicas` question
+## the onboarding form asks a question with one legal answer, and refuse an
+## application that wants two before a file was written. `<=5` is still a
+## kind-sized guard — policy-03 generates a ResourceQuota of 10 CPU / 10Gi per
+## namespace underneath it — without capping every application at one pod.
+
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -8,8 +20,6 @@ spec:
     - name: validate-replicas
       match:
         resources:
-          namespaces:
-          - superheros
           kinds:
             - Deployment
       exclude:
@@ -21,7 +31,7 @@ spec:
             - monitoring
             - argocd
       validate:
-        message: "Replicas must not be more than 1"
+        message: "Replicas must be between 1 and 5"
         pattern:
           spec:
-            replicas: ">=1 & <=1"
+            replicas: ">=1 & <=5"

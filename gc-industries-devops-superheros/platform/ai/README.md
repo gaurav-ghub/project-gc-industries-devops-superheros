@@ -6,7 +6,7 @@ sits between Prometheus Alertmanager and Slack.
 ## The path
 
 ```
-PrometheusRule fires (e.g. a pod restarting in superheros)
+PrometheusRule fires (e.g. an image that cannot be pulled, in any application namespace)
   → Alertmanager groups the alerts and routes matching ones to the ai-webhook receiver
   → POST http://superhero-ai-alertmanager.monitoring.svc.cluster.local:8000/alerts
   → the service asks OpenAI (gpt-4o-mini) to explain them like an SRE would
@@ -15,8 +15,18 @@ PrometheusRule fires (e.g. a pod restarting in superheros)
 
 The Alertmanager route lives in the **monitoring** module's values
 (`platform/monitoring/values/base/prometheus-values.yaml`, `alertmanager.config`)
-so it is part of the main config and always consumed. The alert itself is defined
-by a `PrometheusRule` (`infra/monitoring/pod-restart-alert.yaml`).
+so it is part of the main config and always consumed. The alerts themselves are
+defined by a `PrometheusRule` (`infra/monitoring/rules/application-alerts.yaml`)
+which ArgoCD applies from `infra/argocd/monitoring-rules-argocd-app.yaml`,
+registered by `platform/gitops/install.sh`.
+
+**That last sentence is the whole of Phase 13.4.** Until then the rule lived at
+`infra/monitoring/pod-restart-alert.yaml`, was applied by no install script and
+watched by no ArgoCD Application, and had therefore never been loaded into
+Prometheus in any run of this platform. Every other link described on this page
+was correct and verified green while the first one did not exist. If you change
+where the rules live, change what applies them in the same commit — and check
+`kubectl get prometheusrule -n monitoring`, not the file.
 
 ## Design
 

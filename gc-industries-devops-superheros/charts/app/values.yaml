@@ -20,13 +20,27 @@
 app:
   name: app
 
-# Istio. Off by default: switching it on gives every pod a sidecar (and rolls
-# them all), which only earns its keep when something needs mesh-level routing.
-# A service that declares `versions` needs exactly that — the weights are
+# Istio. On by default since Phase 13.
+#
+# It was off, and the argument for off was real: a sidecar is not free, and
+# turning the mesh on rolls every pod in the namespace. The problem was that
+# neither interactive form asked, so the only way to switch it on was to
+# hand-write `mesh: {enabled: true}` into a spec file — which specs/superheros.yaml
+# does and nothing a user onboarded ever did. The platform installed Istio,
+# installed Kiali to look at Istio, routed every request through the Istio
+# ingress gateway, and put every application outside the mesh. The first outside
+# run deployed three applications and all of their pods were 1/1.
+#
+# A service that declares `versions` needs the mesh outright: the weights are
 # enforced by Envoy, and with mesh off they are inert while still looking
 # configured. Endurance warns when it sees that combination.
+#
+# Set false to opt out — `endurance init --no-mesh`, or the mesh question in
+# either form. Endurance always writes this key explicitly into
+# apps/<name>/values.yaml, so the generated file states the answer rather than
+# inheriting it from here.
 mesh:
-  enabled: false
+  enabled: true
 
 # The application's public address, if it wants one.
 #

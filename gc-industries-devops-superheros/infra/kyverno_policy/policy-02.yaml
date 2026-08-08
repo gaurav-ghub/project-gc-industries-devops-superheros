@@ -1,3 +1,7 @@
+## Every application namespace, not one of them — see policy-01.yaml for why the
+## `namespaces:` selector was removed in Phase 13 and what the exclude list is
+## doing in its place.
+
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -8,8 +12,6 @@ spec:
     - name: validate-image-tag
       match:
         resources:
-          namespaces:
-          - superheros
           kinds:
             - Pod
       exclude:

@@ -54,7 +54,7 @@ func Render(app spec.App) []Resource {
 		out = append(out, Resource{
 			Kind: "Service", Name: s.Name, Namespace: a.Namespace, Object: service(a, s),
 		})
-		if a.Mesh.Enabled && s.IsCanary() {
+		if a.Mesh.On() && s.IsCanary() {
 			out = append(out, Resource{
 				Kind: "DestinationRule", Name: s.Name, Namespace: a.Namespace, Object: destinationRule(a, s),
 			})
@@ -93,7 +93,7 @@ func labels(app spec.App, s spec.Service, version string) map[string]any {
 // immutable selector.
 func podLabels(app spec.App, s spec.Service, version string) map[string]any {
 	m := labels(app, s, version)
-	if app.Mesh.Enabled {
+	if app.Mesh.On() {
 		m["sidecar.istio.io/inject"] = "true"
 	}
 	return m

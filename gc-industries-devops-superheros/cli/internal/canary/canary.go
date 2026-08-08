@@ -193,7 +193,7 @@ func Status(root, appName string) error {
 	}
 	render.Banner(version.Current)
 	render.Section("Canary · " + app.Name)
-	render.Info(fmt.Sprintf("namespace=%s  mesh=%v", app.Namespace, app.Mesh.Enabled))
+	render.Info(fmt.Sprintf("namespace=%s  mesh=%v", app.Namespace, app.Mesh.On()))
 
 	canaries := 0
 	for _, s := range app.Services {

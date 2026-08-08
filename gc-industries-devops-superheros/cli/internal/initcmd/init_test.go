@@ -62,7 +62,7 @@ func sandbox(t *testing.T) string {
 	}
 	writeFile(t, filepath.Join(root, "platform/scripts/cluster.sh"), "#!/usr/bin/env bash\n")
 	writeFile(t, filepath.Join(root, "platform/lib/version.sh"),
-		"CLUSTER_NAME=\"superheros\"\nKUBERNETES_CONTEXT=\"kind-${CLUSTER_NAME}\"\n")
+		"CLUSTER_NAME=\"endurance\"\nKUBERNETES_CONTEXT=\"kind-${CLUSTER_NAME}\"\n")
 	// The real host-port mapping, so BaseURL reads a file rather than guessing.
 	writeFile(t, filepath.Join(root, "kind-config.yaml"), ""+
 		"kind: Cluster\nnodes:\n  - role: control-plane\n    extraPortMappings:\n"+

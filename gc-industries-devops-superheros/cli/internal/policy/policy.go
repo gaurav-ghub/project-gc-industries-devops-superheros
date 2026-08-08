@@ -334,15 +334,21 @@ func Check(policies []Policy, app spec.App) Report {
 	rep := Evaluate(policies, manifest.Render(app))
 	rep.Warnings = append(rep.Warnings, imageWarnings(app)...)
 
-	// Every ClusterPolicy in this repo is scoped to `namespaces: [superheros]`,
-	// so onboarding a second application into its own namespace would be checked
-	// by nothing at all — and would report a clean pass. A gate that says "all
-	// policies satisfied" after evaluating zero rules is actively misleading, so
-	// the emptiness is reported instead.
+	// A gate that says "all policies satisfied" after evaluating zero rules is
+	// actively misleading, so the emptiness is reported instead.
+	//
+	// This warning was written in Phase 3 as a guard against a case that then
+	// became the normal case: every ClusterPolicy in the repo was scoped to
+	// `namespaces: [superheros]`, so the first outside run printed this line for
+	// all three applications it onboarded and carried on, and all three deployed
+	// ungoverned. Phase 13 removed those selectors, which is what turns this back
+	// into the exception it was written to be — it now fires only for a namespace
+	// somebody has deliberately excluded, or a policy directory with nothing
+	// applicable in it.
 	if rep.Checked == 0 && len(policies) > 0 {
 		rep.Warnings = append(rep.Warnings, fmt.Sprintf(
 			"no policy rule matched namespace %q — this application is currently ungoverned; "+
-				"widen the `namespaces` selector in the ClusterPolicies to cover it", app.Namespace))
+				"check the `exclude` lists in the ClusterPolicies", app.Namespace))
 	}
 	return rep
 }

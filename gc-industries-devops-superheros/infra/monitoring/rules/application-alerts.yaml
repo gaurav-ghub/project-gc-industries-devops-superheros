@@ -1,0 +1,207 @@
+###############################################################################
+# The platform's alerting surface for the applications on it.
+#
+# This is the INPUT end of the AI enrichment pipeline. Everything downstream of
+# it already worked and was verified green during the first outside run:
+#
+#   this rule  ->  Prometheus  ->  Alertmanager route (severity=warning,
+#   team=platform, in platform/monitoring/values/kind/prometheus-values.yaml)
+#   ->  superhero-ai-alertmanager in the monitoring namespace  ->  OpenAI
+#   ->  Slack
+#
+# ---------------------------------------------------------------------------
+# Why this file is here and not at infra/monitoring/pod-restart-alert.yaml
+# ---------------------------------------------------------------------------
+#
+# Because that file was applied by nothing. Not by an install script, not by an
+# ArgoCD Application — the only ArgoCD-managed infra path was
+# infra/kyverno_policy/. The rule had never been in a cluster, in any run, and
+# every other link in the chain being green is indistinguishable, from inside,
+# from the feature working. A declared resource that nothing applies is not
+# configuration.
+#
+# So the fix is not a better file at the old path. It is a directory that an
+# ArgoCD Application watches (infra/argocd/monitoring-rules-argocd-app.yaml),
+# which means this directory must contain PrometheusRules and nothing else —
+# infra/monitoring/ also holds a superseded AlertmanagerConfig and a Tempo
+# ConfigMap, and pointing ArgoCD at the parent would have applied both.
+#
+# ---------------------------------------------------------------------------
+# Why the namespace selector is gone
+# ---------------------------------------------------------------------------
+#
+# The old rule read `namespace="superheros"` — the reference application — so
+# even had it been loaded, it would have watched one application out of every
+# application on the platform. It now watches every namespace except the
+# platform's own. Those are excluded because Endurance installs those workloads
+# rather than onboarding them: a seven-module bootstrap has pods that are
+# legitimately not ready for minutes at a time, and alerting on them would open
+# the platform's first run with a flood of Slack messages about itself.
+#
+# The exclusion list is the same set of namespaces the ClusterPolicies in
+# infra/kyverno_policy/ exclude, for the same reason, and `kube-.*` covers
+# kube-system, kube-public and kube-node-lease in one.
+###############################################################################
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+
+metadata:
+  name: application-alerts
+  # The monitoring namespace, where the stack lives — not an application's.
+  # kube-prometheus-stack's ruleNamespaceSelector is unset (all namespaces), so
+  # what actually selects this rule is the label below.
+  namespace: monitoring
+  labels:
+    # kube-prometheus-stack's default ruleSelector matches release=<helm release
+    # name>, and the platform installs the stack as the "prometheus" release
+    # (platform/monitoring/prometheus/install.sh). Get this wrong and the rule
+    # loads into no Prometheus and fails silently — which is the same outcome as
+    # not applying the file at all, one layer further in.
+    release: prometheus
+
+spec:
+  groups:
+    - name: endurance-application-alerts
+      rules:
+
+        # ------------------------------------------------------------------
+        # 1 · The image cannot be pulled.
+        #
+        # This is the one the first outside run needed and did not have.
+        # `bad-app` sat in ImagePullBackOff for 17 minutes with restart count 0,
+        # so PodRestartingFrequently — the platform's entire alerting surface at
+        # the time — could not have fired even if it had been loaded. Two
+        # independent reasons for the same silence.
+        #
+        # A pull failure is terminal until somebody changes the tag or pushes
+        # the image, so one minute is long enough to not fire on a slow pull and
+        # short enough to be demonstrable in a live run.
+        # ------------------------------------------------------------------
+        - alert: ImagePullFailing
+          expr: |
+            kube_pod_container_status_waiting_reason{
+              reason=~"ImagePullBackOff|ErrImagePull",
+              namespace!~"kube-.*|local-path-storage|istio-system|kyverno|monitoring|argocd"
+            } == 1
+          for: 1m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Container image cannot be pulled"
+            description: >-
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              (namespace {{ $labels.namespace }}) is {{ $labels.reason }}.
+              The image does not exist, is private, or publishes no manifest for
+              this cluster's architecture — kind nodes are linux/amd64.
+
+        # ------------------------------------------------------------------
+        # 2 · The container starts and dies.
+        #
+        # CrashLoopBackOff before the restart counter has moved far enough for a
+        # [5m] increase window to notice is the other way the run's applications
+        # failed. Both portfolio services did exactly this.
+        # ------------------------------------------------------------------
+        - alert: ContainerCrashLooping
+          expr: |
+            kube_pod_container_status_waiting_reason{
+              reason="CrashLoopBackOff",
+              namespace!~"kube-.*|local-path-storage|istio-system|kyverno|monitoring|argocd"
+            } == 1
+          for: 1m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Container is crash-looping"
+            description: >-
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              (namespace {{ $labels.namespace }}) is in CrashLoopBackOff — it
+              starts and exits. A missing required environment variable and a
+              permission denial on a privileged port are the two that this
+              platform produces most often.
+
+        # ------------------------------------------------------------------
+        # 3 · The container was killed for using too much memory.
+        #
+        # Distinct from a crash loop because the fix is different and the
+        # symptom is not: an OOMKill looks like any other restart from the
+        # outside, and the reason is only in the *last terminated* state.
+        # ------------------------------------------------------------------
+        - alert: ContainerOOMKilled
+          expr: |
+            kube_pod_container_status_last_terminated_reason{
+              reason="OOMKilled",
+              namespace!~"kube-.*|local-path-storage|istio-system|kyverno|monitoring|argocd"
+            } == 1
+          for: 1m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Container was OOMKilled"
+            description: >-
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              (namespace {{ $labels.namespace }}) was killed for exceeding its
+              memory limit. The limit is in apps/<app>/values.yaml; Endurance
+              materialises 512Mi by default.
+
+        # ------------------------------------------------------------------
+        # 4 · The pod is restarting.
+        #
+        # The original rule, kept — it is still the right alert for an
+        # application that comes up, serves, and then falls over, which none of
+        # the three failure modes above describes. Only the namespace selector
+        # changed.
+        # ------------------------------------------------------------------
+        - alert: PodRestartingFrequently
+          expr: |
+            increase(
+              kube_pod_container_status_restarts_total{
+                namespace!~"kube-.*|local-path-storage|istio-system|kyverno|monitoring|argocd"
+              }[5m]
+            ) > 0
+          for: 1m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Application pod restarting"
+            description: >-
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              (namespace {{ $labels.namespace }}) restarted in the last 5
+              minutes.
+
+        # ------------------------------------------------------------------
+        # 5 · The backstop: a container that never became ready.
+        #
+        # The four rules above each name a failure mode somebody has already
+        # seen. This one catches the ones nobody has named yet — a failing
+        # readiness probe, a pod that cannot be scheduled, an init container
+        # that hangs — and it is deliberately the slowest of the five, because
+        # every healthy deploy passes through this state on its way up.
+        #
+        # Succeeded pods are subtracted: a completed Job reports its containers
+        # as not-ready forever, and alerting on a finished Job would make this
+        # rule permanently firing on any cluster that ever ran one.
+        # ------------------------------------------------------------------
+        - alert: PodContainerNotReady
+          expr: |
+            (
+              kube_pod_container_status_ready{
+                namespace!~"kube-.*|local-path-storage|istio-system|kyverno|monitoring|argocd"
+              } == 0
+            )
+            unless on (namespace, pod)
+            (kube_pod_status_phase{phase="Succeeded"} == 1)
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Container has not become ready"
+            description: >-
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              (namespace {{ $labels.namespace }}) has not been ready for 5
+              minutes and no more specific alert explained why.

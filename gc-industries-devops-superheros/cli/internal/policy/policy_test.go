@@ -88,7 +88,11 @@ func TestViolationsBlock(t *testing.T) {
 	}{
 		{"latest tag", func(a *spec.App) { a.Services[0].Tag = "latest" }, "disallow-latest-tag"},
 		{"foreign registry", func(a *spec.App) { a.Services[0].Image = "quay.io/gc/catalog" }, "restrict-image-registries"},
-		{"too many replicas", func(a *spec.App) { a.Services[0].Replicas = 3 }, "enforce-replica-range"},
+		// Six, not three. Phase 13 widened enforce-replica-range from `>=1 & <=1`
+		// to `>=1 & <=5` when it widened its scope from the superheros namespace
+		// to every one — a cap of exactly one was a rule about a demo, and this
+		// case has to sit above whatever the real cap is or it proves nothing.
+		{"replicas above the range", func(a *spec.App) { a.Services[0].Replicas = 6 }, "enforce-replica-range"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -159,15 +163,67 @@ func TestMutateAndGenerateRulesAreSkippedVisibly(t *testing.T) {
 	}
 }
 
-// The repo's policies are all scoped to the superheros namespace. A second
-// application would therefore be governed by nothing — the gate has to say so
-// rather than report a pass.
-func TestUngovernedNamespaceIsWarned(t *testing.T) {
+// TestAnApplicationInItsOwnNamespaceIsGoverned is Phase 13's exit criterion for
+// 13.3, and it is the inversion of the test that used to stand here.
+//
+// Until Phase 13 every ClusterPolicy in this repo was scoped to
+// `namespaces: [superheros]`, so this test asserted the opposite — that an
+// application in any other namespace matched no rule at all — and it passed,
+// correctly, for twelve phases. The first outside run then onboarded three
+// applications into three other namespaces and all three deployed ungoverned,
+// with the gate printing `⚠ no policy rule matched namespace "stark"` and
+// carrying on each time. The specification was scoped to one application and
+// the test asserted it faithfully.
+//
+// `portfolio` is deliberately the name from that run.
+func TestAnApplicationInItsOwnNamespaceIsGoverned(t *testing.T) {
 	app := compliant()
 	app.Name, app.Namespace = "portfolio", "portfolio"
 	rep := Check(loadReal(t), app)
+
+	if rep.Checked == 0 {
+		t.Fatalf("no rule matched namespace %q — an application onboarded into its own "+
+			"namespace is ungoverned again:\n%s", app.Namespace, dump(rep))
+	}
+	if n := len(rep.Blocking()); n != 0 {
+		t.Errorf("a compliant application produced %d blocking violation(s):\n%s", n, dump(rep))
+	}
+	joined := strings.Join(rep.Warnings, " ")
+	if strings.Contains(joined, "ungoverned") {
+		t.Errorf("the ungoverned warning fired for a governed namespace: %v", rep.Warnings)
+	}
+}
+
+// TestNoPolicyIsScopedToOneApplication is the structural half of the same
+// thing, and the one that survives somebody adding policy-08.
+//
+// A `namespaces:` selector in a *match* block is how a platform policy quietly
+// becomes a policy about one tenant. Excludes are the intended lever — those
+// name the platform's own namespaces, which is a fact about the platform — so
+// only the match side is checked here.
+func TestNoPolicyIsScopedToOneApplication(t *testing.T) {
+	for _, p := range loadReal(t) {
+		for _, r := range p.Rules {
+			if len(r.Namespaces) > 0 {
+				t.Errorf("%s (%s) rule %q matches only namespaces %v — a platform policy "+
+					"governs every application namespace and narrows with `exclude`, not `match`",
+					p.Name, p.Source, r.Name, r.Namespaces)
+			}
+		}
+	}
+}
+
+// TestTheUngovernedWarningStillWorks keeps the warning itself covered now that
+// no application namespace reaches it. An excluded namespace is the case it is
+// left for: the platform's own, where the rules deliberately do not apply.
+func TestTheUngovernedWarningStillWorks(t *testing.T) {
+	app := compliant()
+	app.Name, app.Namespace = "monitoring", "monitoring"
+	rep := Check(loadReal(t), app)
+
 	if rep.Checked != 0 {
-		t.Fatalf("expected no rules to match namespace %q, %d were checked", app.Namespace, rep.Checked)
+		t.Fatalf("expected no rules to match excluded namespace %q, %d were checked",
+			app.Namespace, rep.Checked)
 	}
 	if len(rep.Blocking()) != 0 {
 		t.Error("an unmatched namespace should not produce violations")

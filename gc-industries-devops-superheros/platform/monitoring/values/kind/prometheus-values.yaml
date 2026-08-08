@@ -67,6 +67,13 @@ alertmanager:
   # were told to select it (alertmanagerConfigSelector), which it is not; that CR
   # was inert. The main config avoids that whole "looks wired, isn't" class.
   #
+  # Phase 13 postscript: it avoided that class *here*, and the class recurred one
+  # hop upstream. The PrometheusRule that produces the alerts this route carries
+  # was applied by nothing at all until Phase 13 — see
+  # infra/monitoring/rules/application-alerts.yaml and the ArgoCD Application
+  # that now syncs it. Being green at every link except the first is
+  # indistinguishable, from inside, from working.
+  #
   # Alertmanager holds NO Slack or model credential. It only forwards matching
   # alerts to the in-cluster AI enricher (platform/ai), which enriches via OpenAI
   # and posts to Slack. Everything else (including the always-on Watchdog) goes to

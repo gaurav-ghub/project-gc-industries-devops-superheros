@@ -258,6 +258,14 @@ func (a *App) ApplyDefaults() {
 		s.Security.RunAsNonRoot = true
 		s.Security.AllowPrivilegeEscalation = false
 	}
+	// An application that said nothing about the mesh is in it, and the
+	// generated files say so in words. Materialising it here rather than leaving
+	// it to Mesh.On() is deliberate: apps/<app>/values.yaml and app.yaml are read
+	// by people and by ArgoCD, and a file whose behaviour depends on a default it
+	// does not mention is the shape of fault this phase exists to remove.
+	if a.Mesh.Enabled == nil {
+		a.Mesh = MeshOn()
+	}
 	a.applyRouteDefaults()
 }
 
@@ -307,15 +315,54 @@ func (a *App) fillRoute(r *Route) {
 	}
 }
 
-// Mesh is the application's opt-in to Istio.
+// Mesh is the application's membership of Istio, and it is on unless the
+// application says otherwise.
 //
-// It is opt-in rather than always-on because turning it on is not free: every
-// pod gains a sidecar and therefore rolls, and an application that declares no
-// versions gains nothing in return. Weighted canary routing is the capability
-// that needs it, so the application that wants canary is the application that
-// asks for the mesh.
+// # Why this inverted in Phase 13
+//
+// It used to be opt-in, with a defensible argument: a sidecar is not free, every
+// pod rolls when you add one, and only weighted canary routing strictly needs
+// it — so let the application that wants canary ask for the mesh.
+//
+// The argument was sound and the outcome was that nothing ever asked. Neither
+// interactive form had a mesh question, so the only way to reach it was to
+// hand-write `mesh: {enabled: true}` into a spec file, which is what
+// specs/superheros.yaml does and is why the reference application had sidecars
+// and nothing anybody onboarded ever would. The first outside run deployed three
+// applications and every pod was 1/1. The platform installs Istio, installs
+// Kiali to look at Istio, and routes every request through the Istio ingress
+// gateway — and then put all three applications outside the mesh, so Kiali
+// showed an empty graph, which reads as a broken install.
+//
+// A default nobody can see is not a choice the user made. So the default is now
+// the one that matches what the platform is built out of, and the opt-out is a
+// question the forms actually ask.
 type Mesh struct {
-	Enabled bool `yaml:"enabled"`
+	// Enabled is a pointer because "not written down" and "written down as
+	// false" are different answers and a bool cannot hold both. Absent takes the
+	// platform default; false is an author who opted out and must keep opting
+	// out across every regeneration.
+	//
+	// Read it through On(). ApplyDefaults materialises it, so every *generated*
+	// file states the answer outright rather than relying on this default — the
+	// file a reviewer reads should not need to know what the CLI would have
+	// assumed.
+	Enabled *bool `yaml:"enabled"`
+}
+
+// On reports whether the application is in the mesh. An application that never
+// mentioned the mesh is in it.
+func (m Mesh) On() bool { return m.Enabled == nil || *m.Enabled }
+
+// MeshOn and MeshOff are explicit answers, for a caller that has one.
+func MeshOn() Mesh {
+	v := true
+	return Mesh{Enabled: &v}
+}
+
+func MeshOff() Mesh {
+	v := false
+	return Mesh{Enabled: &v}
 }
 
 // DefaultGateway is the platform's one ingress Gateway, in the form Istio wants
@@ -470,9 +517,13 @@ func (a App) CanaryServices() []string {
 // come up, the app looks healthy, and kube-proxy load-balances evenly across
 // every version's pods — so a 90/10 split silently behaves as 50/50. Nothing
 // rejects it, which is exactly why the CLI has to say it out loud.
+//
+// Since Phase 13 this can only be reached by an author who opted *out* of the
+// mesh and then asked for weighted versions — which is a contradiction worth
+// naming rather than a default worth warning about.
 func (a App) MeshWarnings() []string {
 	var out []string
-	if canaries := a.CanaryServices(); len(canaries) > 0 && !a.Mesh.Enabled {
+	if canaries := a.CanaryServices(); len(canaries) > 0 && !a.Mesh.On() {
 		out = append(out, fmt.Sprintf(
 			"service(s) %s declare weighted versions but mesh.enabled is false — "+
 				"without Istio the weights are inert and traffic is split evenly by kube-proxy",

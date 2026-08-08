@@ -1,6 +1,24 @@
-## This Kyverno policy enforces that all Pods in the "superheros" namespace must have CPU and memory requests and limits defined. 
-## It excludes Pods in the "kube-system", "istio-system", and "kyverno" namespaces from this requirement. 
-## The policy will be enforced, meaning that any Pod that does not meet these criteria will be rejected when created or updated.
+## This Kyverno policy enforces that every application Pod on the platform must
+## have CPU and memory requests and limits defined.
+##
+## Phase 13 — the match block used to name `namespaces: [superheros]`, the
+## reference application. Every other application the platform onboarded landed
+## in a namespace no rule selected, so all three applications of the first
+## outside run deployed ungoverned and the CLI's gate said so out loud each
+## time (`⚠ no policy rule matched namespace "stark"`). A policy scoped to one
+## application is not a platform policy. The scope is now every namespace, and
+## the governing is done by the exclude list below.
+##
+## The exclude list is the platform's own namespaces — the ones whose workloads
+## Endurance installs rather than onboards, and which are not free to be
+## rewritten to satisfy a policy written for applications. Kyverno's webhook
+## configuration (platform/security/kyverno/values.yaml) independently keeps the
+## admission controller away from kube-system, kyverno, istio-system and
+## local-path-storage, so those four are excluded twice on purpose: an admission
+## webhook that can block kube-system can make a cluster unrecoverable.
+##
+## The policy is enforced, so any Pod that does not meet the criteria is
+## rejected when created or updated.
 
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -12,8 +30,6 @@ spec:
     - name: check-resources
       match:
         resources:
-          namespaces:
-          - superheros
           kinds:
             - Pod
       exclude:

@@ -43,7 +43,7 @@ func sandbox(t *testing.T) string {
 	}
 	// The two files platform.isRoot uses as the marker for a platform tree.
 	write(t, filepath.Join(root, "platform/scripts/cluster.sh"), "#!/usr/bin/env bash\n")
-	write(t, filepath.Join(root, "platform/lib/version.sh"), "CLUSTER_NAME=\"superheros\"\n")
+	write(t, filepath.Join(root, "platform/lib/version.sh"), "CLUSTER_NAME=\"endurance\"\n")
 	return root
 }
 

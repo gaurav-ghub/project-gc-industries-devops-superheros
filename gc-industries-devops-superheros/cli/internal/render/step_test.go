@@ -16,7 +16,7 @@ func TestLiveStepGolden(t *testing.T) {
 
 	s := r.StartStep("Creating the kind cluster")
 	c.advance(12300 * time.Millisecond)
-	s.DoneWith("kind-superheros · 1 node")
+	s.DoneWith("kind-endurance · 1 node")
 
 	s = r.StartStep("Installing Istio")
 	s.Detail("istioctl 1.23.0")

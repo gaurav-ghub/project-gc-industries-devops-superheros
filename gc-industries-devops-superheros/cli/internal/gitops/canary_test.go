@@ -11,7 +11,7 @@ import (
 
 func canaryApp() spec.App {
 	app := sampleApp()
-	app.Mesh = spec.Mesh{Enabled: true}
+	app.Mesh = spec.MeshOn()
 	i := app.FindService("catalog")
 	app.Services[i].Replicas = 0
 	app.Services[i].Versions = []spec.Version{
@@ -186,8 +186,15 @@ func TestApplicationCarriesInjectionLabelOnlyWithMesh(t *testing.T) {
 		}
 	}
 
+	// The other direction needs an application that opted *out*. Since Phase 13
+	// an application that says nothing about the mesh is in it, so a plain
+	// sampleApp() carries the label — which is the change, and is asserted
+	// separately by TestAnApplicationThatSaysNothingIsInTheMesh.
+	optedOut := sampleApp()
+	optedOut.Mesh = spec.MeshOff()
+
 	plain := t.TempDir()
-	if _, err := Generate(plain, sampleApp(), "r", ""); err != nil {
+	if _, err := Generate(plain, optedOut, "r", ""); err != nil {
 		t.Fatal(err)
 	}
 	data, err = os.ReadFile(filepath.Join(plain, "apps", "superheros", "application.yaml"))
@@ -195,7 +202,46 @@ func TestApplicationCarriesInjectionLabelOnlyWithMesh(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(data), "istio-injection") {
-		t.Error("a mesh-less application asked for sidecar injection")
+		t.Error("an application that opted out of the mesh asked for sidecar injection")
+	}
+}
+
+// TestAnApplicationThatSaysNothingIsInTheMesh is 13.1, stated as the thing that
+// was false before it.
+//
+// `mesh.enabled` shipped false and neither interactive form asked about it, so
+// the only application on the platform with sidecars was the one whose spec file
+// had been hand-edited — the reference application. Three applications were
+// onboarded in the first outside run and every pod was 1/1, on a platform that
+// installs Istio, installs Kiali to look at Istio, and routes every request
+// through the Istio ingress gateway.
+//
+// The generated files must also *say* so. A default that only lives in Go is a
+// default the next reader of apps/<app>/values.yaml cannot see.
+func TestAnApplicationThatSaysNothingIsInTheMesh(t *testing.T) {
+	silent := sampleApp()
+	if silent.Mesh.Enabled != nil {
+		t.Fatal("sampleApp() states a mesh answer — this test needs one that does not")
+	}
+
+	root := t.TempDir()
+	if _, err := Generate(root, silent, "r", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []struct{ name, want string }{
+		{"application.yaml", "istio-injection: enabled"},
+		{"values.yaml", "enabled: true"},
+		{"app.yaml", "enabled: true"},
+	} {
+		data, err := os.ReadFile(filepath.Join(root, "apps", "superheros", f.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), f.want) {
+			t.Errorf("%s does not contain %q — an application that said nothing about the "+
+				"mesh should be in it, and the generated file should say so:\n%s",
+				f.name, f.want, data)
+		}
 	}
 }
 

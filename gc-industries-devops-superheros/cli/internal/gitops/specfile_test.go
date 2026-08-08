@@ -239,7 +239,7 @@ func canarySpecApp() spec.App {
 	return spec.App{
 		Name:      "superheros",
 		Namespace: "superheros",
-		Mesh:      spec.Mesh{Enabled: true},
+		Mesh:      spec.MeshOn(),
 		Services: []spec.Service{
 			{Name: "frontend", Image: "docker.io/dockergc00/superheros-frontend", Tag: "v1", Port: 80, Replicas: 1},
 			{Name: "catalog", Image: "docker.io/dockergc00/superheros-catalog", Port: 8081, Versions: []spec.Version{

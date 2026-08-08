@@ -1,0 +1,42 @@
+# The ArgoCD Application that puts the platform's alert rules in the cluster.
+#
+# This file is Phase 13's answer to a fault that had survived twelve phases:
+# infra/monitoring/pod-restart-alert.yaml was applied by no install script and
+# watched by no ArgoCD Application, so the platform's one alert rule had never
+# been loaded into Prometheus. Everything downstream of it was correct and
+# green, which is exactly why nobody noticed.
+#
+# It is deliberately the same shape as kyverno-argocd-app.yaml beside it: a
+# directory of platform manifests, synced by ArgoCD, so that "is it applied?" is
+# a question with a visible answer on a screen rather than an assumption. The
+# path names infra/monitoring/rules/ and not infra/monitoring/, because ArgoCD
+# syncs a whole directory and the parent also holds a superseded
+# AlertmanagerConfig and a Tempo ConfigMap.
+#
+# Registered by platform/gitops/install.sh, which is the module that installs
+# ArgoCD. Note that ArgoCD reads the repo, not the working tree — a change to
+# the rules is in the cluster once it is pushed, not once it is saved.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-alert-rules
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+    targetRevision: main
+    path: gc-industries-devops-superheros/infra/monitoring/rules/
+  destination:
+    server: https://kubernetes.default.svc
+    # PrometheusRule is namespaced, and the rules carry `namespace: monitoring`
+    # themselves. This has to agree with them or ArgoCD reports OutOfSync
+    # forever against a resource it did place correctly.
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
