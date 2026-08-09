@@ -1,0 +1,34 @@
+# Endurance registry entry — do not edit by hand; use `endurance onboard`
+---
+name: gaurav-go-app
+namespace: gaurav-go-app
+owner: Gaurav Chaurasia
+mesh:
+    enabled: true
+route:
+    enabled: true
+    path: /
+    service: gaurav-go-app
+    port: 8080
+    gateway: istio-system/endurance-gateway
+services:
+    - name: gaurav-go-app
+      image: docker.io/dockergc00/gaurav-go-app
+      tag: v1
+      port: 8080
+      replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL

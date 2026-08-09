@@ -1,0 +1,41 @@
+# gaurav-go-app — the INPUT to `endurance onboard --from`.
+#
+# Written by `endurance init`. apps/gaurav-go-app/ is generated from this file
+# and overwritten on every onboard, so edit it here, not there:
+#
+#   endurance onboard --root . --from specs/gaurav-go-app.yaml
+#
+# resources and security are omitted on purpose — Endurance materialises its
+# platform defaults (non-root UID 10001, all capabilities dropped, CPU/memory
+# requests and limits) into apps/gaurav-go-app/values.yaml, which is what the
+# Kyverno gate then validates. Set them here only to override a default.
+
+name: gaurav-go-app
+namespace: gaurav-go-app
+owner: Gaurav Chaurasia
+
+# Istio. On unless you say otherwise: the platform routes everything through
+# the Istio ingress gateway and ships Kiali to visualise the mesh, so an
+# application outside it is invisible there and cannot shift traffic between
+# weighted versions. Every pod gains a sidecar container, so pods read 2/2.
+mesh:
+  enabled: true
+
+# The application's public address. The platform owns one Istio Gateway and
+# deliberately knows nothing about what is behind any path on it — an
+# application asks, here, and charts/app renders a VirtualService bound to it.
+# `port` is omitted so it is read from the named service and cannot drift.
+# /argocd, /kiali, /grafana, /prometheus and /alertmanager are the platform's.
+route:
+  enabled: true
+  path: /
+  service: gaurav-go-app
+
+# One service. An application is a set of independently-deployable services;
+# this is the N=1 case. Add another entry here and re-run onboard to grow it.
+services:
+  - name: gaurav-go-app
+    image: docker.io/dockergc00/gaurav-go-app
+    tag: v1
+    port: 8080
+    replicas: 1
