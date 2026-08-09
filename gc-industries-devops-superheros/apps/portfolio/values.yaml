@@ -38,7 +38,7 @@ services:
           value: gaurav-chaurasia.25908149
     - name: frontend
       image: docker.io/dockergc00/portfolio-frontend
-      tag: v2
+      tag: v3
       port: 8080
       replicas: 1
       resources:
