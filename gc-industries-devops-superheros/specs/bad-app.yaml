@@ -36,6 +36,6 @@ route:
 services:
   - name: bad-app
     image: docker.io/dockergc00/bad-app
-    tag: v1
+    tag: v2
     port: 8080
     replicas: 1
