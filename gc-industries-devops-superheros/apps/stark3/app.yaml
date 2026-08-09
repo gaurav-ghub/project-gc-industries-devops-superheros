@@ -1,0 +1,37 @@
+# Endurance registry entry — do not edit by hand; use `endurance onboard`
+---
+name: stark3
+namespace: stark3
+owner: gc-ghub
+mesh:
+    enabled: true
+route:
+    enabled: true
+    path: /stark3
+    service: stark3
+    port: 8080
+    gateway: istio-system/endurance-gateway
+services:
+    - name: stark3
+      image: docker.io/dockergc00/stark-industries-go-web-app
+      tag: v1
+      port: 8080
+      replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
+      env:
+        - name: LOG_LEVEL
+          value: info
