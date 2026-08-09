@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gc-ghub/endurance/internal/image"
 	"github.com/gc-ghub/endurance/internal/onboard"
 	"github.com/gc-ghub/endurance/internal/platform"
 	"github.com/gc-ghub/endurance/internal/policy"
@@ -741,51 +743,12 @@ func TestADeployThatCannotBeSeenSaysSoAndNamesThePush(t *testing.T) {
 	}
 }
 
-// TestPushStateDistinguishesItsThreeAnswers — no upstream, ahead of one, and
-// nothing to do are three different sentences because they have three different
-// next steps.
-func TestPushStateDistinguishesItsThreeAnswers(t *testing.T) {
-	// A directory that is not a git repository: every git call fails, which is
-	// the "nothing has been pushed anywhere" case.
-	needs, detail := pushState(t.TempDir())
-	if !needs {
-		t.Error("a non-repository was reported as fully pushed")
-	}
-	if !strings.Contains(detail, "no upstream") {
-		t.Errorf("the reason is not stated: %q", detail)
-	}
-}
-
-// TestTheWaitReportsEachStateOnceAndNotEveryPoll — a step that prints the same
-// line every five seconds is a step nobody reads.
-func TestTheWaitReportsEachStateOnceAndNotEveryPoll(t *testing.T) {
-	buf := capture(t)
-	root := sandbox(t)
-
-	polls := 0
-	kube := func(args ...string) (string, error) {
-		polls++
-		if polls < 3 {
-			return `{"status":{"sync":{"status":"OutOfSync"},"health":{"status":"Progressing"}}}`, nil
-		}
-		return `{"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"}}}`, nil
-	}
-	p := render.NewProgress("t", "wait")
-	step := p.Start("wait")
-	st := waitForSync(step, root, "demo", kube, Options{
-		Timeout: time.Minute, Now: func() time.Time { return time.Unix(0, 0) },
-		sleep: func(time.Duration) {},
-	})
-	step.Done()
-	p.Finish()
-
-	if !st.synced {
-		t.Fatal("a Synced/Healthy application was not recognised")
-	}
-	if got := strings.Count(buf.String(), "sync OutOfSync · health Progressing"); got != 1 {
-		t.Errorf("the same state was reported %d times, want 1:\n%s", got, buf.String())
-	}
-}
+// TestPushStateDistinguishesItsThreeAnswers and
+// TestTheWaitReportsEachStateOnceAndNotEveryPoll moved to internal/deploy when
+// the deploy logic did (Phase 14, 14.2) — see deploy_test.go. What stays here
+// is init's own contract with that package: TestInitForwardsTheImagePreflightToOnboard's
+// sibling above, and the end-to-end tests below that exercise deploy through
+// Run() rather than calling its internals directly.
 
 // TestNoQuestionIsAskedThatTheToolCanAnswer.
 //
@@ -871,6 +834,217 @@ func TestAnOwnerThatYAMLWouldMisreadIsQuoted(t *testing.T) {
 		if app.Owner != owner {
 			t.Errorf("owner %q round-tripped as %q", owner, app.Owner)
 		}
+	}
+}
+
+// 14.1 — N services, routes and per-service env, the fields init's form
+// gained so a developer with a multi-service application never opens an
+// editor. toSpec and specYAML are exercised directly, the same way the
+// existing owner-quoting and generated-spec tests above already do — a form
+// cannot be driven without a terminal, but the data it produces is a plain
+// Answers value either way.
+
+// TestNServicesRoundTrip — the N in "N services": two extra services, each
+// with their own env, survive toSpec and a full YAML round trip.
+func TestNServicesRoundTrip(t *testing.T) {
+	a := Answers{
+		Name: "shop", Image: "docker.io/x/frontend", Tag: "v1", Port: 8080,
+		Env: []spec.EnvVar{{Name: "LOG_LEVEL", Value: "info"}},
+		ExtraServices: []ServiceAnswer{
+			{Name: "backend", Image: "docker.io/x/backend", Tag: "v1", Port: 9090,
+				Env: []spec.EnvVar{{Name: "GITHUB_USERNAME", Value: "gc-ghub"}}},
+			{Name: "worker", Image: "docker.io/x/worker", Tag: "v1", Port: 9091},
+		},
+	}
+	app := toSpec(a)
+	if len(app.Services) != 3 {
+		t.Fatalf("Services = %d, want 3: %+v", len(app.Services), app.ServiceNames())
+	}
+	if got := app.ServiceNames(); got[0] != "shop" || got[1] != "backend" || got[2] != "worker" {
+		t.Errorf("service order = %v, want [shop backend worker] — the order they were asked in", got)
+	}
+	if len(app.Services[0].Env) != 1 || app.Services[0].Env[0].Name != "LOG_LEVEL" {
+		t.Errorf("the first service's env did not survive: %+v", app.Services[0].Env)
+	}
+	if len(app.Services[1].Env) != 1 || app.Services[1].Env[0].Value != "gc-ghub" {
+		t.Errorf("an extra service's env did not survive: %+v", app.Services[1].Env)
+	}
+	if len(app.Services[2].Env) != 0 {
+		t.Errorf("worker asked for no env and got some: %+v", app.Services[2].Env)
+	}
+
+	// And through the file the way `onboard --from` will actually read it.
+	var reread spec.App
+	if err := yaml.Unmarshal([]byte(specYAML(a)), &reread); err != nil {
+		t.Fatalf("the generated spec is not valid YAML: %v\n%s", err, specYAML(a))
+	}
+	if len(reread.Services) != 3 {
+		t.Fatalf("re-read Services = %d, want 3", len(reread.Services))
+	}
+	if len(reread.Services[1].Env) != 1 || reread.Services[1].Env[0].Name != "GITHUB_USERNAME" {
+		t.Errorf("env did not survive the YAML round trip: %+v", reread.Services[1].Env)
+	}
+}
+
+// TestRoutesPluralWhenMoreThanOneServiceAsksForOne — a route names one
+// service, so a multi-service application choosing which of its services
+// face the platform's host produces `routes:`, the list — not `route:`,
+// which the spec format refuses to also declare at the same time.
+func TestRoutesPluralWhenMoreThanOneServiceAsksForOne(t *testing.T) {
+	a := Answers{
+		Name: "shop", Image: "docker.io/x/frontend", Tag: "v1", Port: 8080,
+		Route: true, Path: "/",
+		ExtraServices: []ServiceAnswer{
+			{Name: "catalog", Image: "docker.io/x/catalog", Tag: "v1", Port: 8081,
+				Route: true, Path: "/api/catalog"},
+			{Name: "worker", Image: "docker.io/x/worker", Tag: "v1", Port: 9091}, // no route
+		},
+	}
+	app := toSpec(a)
+	if app.Route.Enabled {
+		t.Error("two routes were asked for and the single `route:` field is still set — " +
+			"Validate refuses a file declaring both")
+	}
+	if len(app.Routes) != 2 {
+		t.Fatalf("Routes = %d, want 2: %+v", len(app.Routes), app.Routes)
+	}
+	if err := app.Validate(); err != nil {
+		t.Fatalf("two routes on two different services do not validate: %v", err)
+	}
+
+	yamlText := specYAML(a)
+	var reread spec.App
+	if err := yaml.Unmarshal([]byte(yamlText), &reread); err != nil {
+		t.Fatalf("invalid YAML: %v\n%s", err, yamlText)
+	}
+	if len(reread.Routes) != 2 {
+		t.Errorf("re-read Routes = %d, want 2:\n%s", len(reread.Routes), yamlText)
+	}
+	if !strings.Contains(yamlText, "routes:") || strings.Contains(yamlText, "\nroute:\n") {
+		t.Errorf("the file does not use the plural form for two routes:\n%s", yamlText)
+	}
+}
+
+// TestASingleExtraRouteStillWritesTheSingularForm — one route, however it got
+// there, keeps rendering exactly as it always did, because the Phase 1–9
+// regeneration proof depends on the single-route shape not moving under it.
+func TestASingleExtraRouteStillWritesTheSingularForm(t *testing.T) {
+	a := Answers{
+		Name: "shop", Image: "docker.io/x/frontend", Tag: "v1", Port: 8080,
+		// The app itself asks for no route; only the extra service does.
+		ExtraServices: []ServiceAnswer{
+			{Name: "catalog", Image: "docker.io/x/catalog", Tag: "v1", Port: 8081,
+				Route: true, Path: "/api/catalog"},
+		},
+	}
+	app := toSpec(a)
+	if !app.Route.Enabled || app.Route.Service != "catalog" {
+		t.Errorf("a lone route did not become the singular `route:` field: %+v", app.Route)
+	}
+	if len(app.Routes) != 0 {
+		t.Errorf("a lone route also populated `routes:`: %+v", app.Routes)
+	}
+	if !strings.Contains(specYAML(a), "route:\n") {
+		t.Errorf("the file does not use the singular form for one route:\n%s", specYAML(a))
+	}
+}
+
+// TestNoExtraServicesIsByteForByteTheOldShape — the N=1, no-env, no-extra-route
+// case is what every existing default and every existing test already
+// exercises, and 14.1 must not have moved it.
+func TestNoExtraServicesIsByteForByteTheOldShape(t *testing.T) {
+	a := Answers{Name: "demo", Image: DefaultImage, Tag: DefaultTag, Port: DefaultPort, Route: true, Path: "/"}
+	app := toSpec(a)
+	if len(app.Services) != 1 {
+		t.Fatalf("Services = %d, want 1", len(app.Services))
+	}
+	if !app.Route.Enabled || len(app.Routes) != 0 {
+		t.Errorf("the single-service, single-route shape changed: route=%+v routes=%+v", app.Route, app.Routes)
+	}
+	if len(app.Services[0].Env) != 0 {
+		t.Errorf("no env was asked for and some was produced: %+v", app.Services[0].Env)
+	}
+}
+
+// TestParseEnv covers the KEY=value grammar the form's validator and the
+// answer-to-spec conversion both depend on.
+func TestParseEnv(t *testing.T) {
+	cases := []struct {
+		name, in string
+		want     []spec.EnvVar
+		wantErr  bool
+	}{
+		{"empty", "", nil, false},
+		{"whitespace only", "   ", nil, false},
+		{"one pair", "KEY=value", []spec.EnvVar{{Name: "KEY", Value: "value"}}, false},
+		{"several, spaced", "A=1, B=2 , C=3",
+			[]spec.EnvVar{{Name: "A", Value: "1"}, {Name: "B", Value: "2"}, {Name: "C", Value: "3"}}, false},
+		{"value may contain =", "URL=http://x/y?z=1",
+			[]spec.EnvVar{{Name: "URL", Value: "http://x/y?z=1"}}, false},
+		{"empty value is allowed", "FLAG=", []spec.EnvVar{{Name: "FLAG", Value: ""}}, false},
+		{"no equals is refused", "KEYONLY", nil, true},
+		{"empty key is refused", "=value", nil, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := parseEnv(c.in)
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("parseEnv(%q) accepted a malformed pair", c.in)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseEnv(%q) = %v", c.in, err)
+			}
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("parseEnv(%q) = %+v, want %+v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestValidEnvAgreesWithParseEnv — the form's validator must refuse exactly
+// what parseEnv would refuse, or the plan lies: a value the prompt accepted
+// but toSpec cannot parse would surface as an error after the confirmation
+// screen rather than at the field that caused it.
+func TestValidEnvAgreesWithParseEnv(t *testing.T) {
+	for _, in := range []string{"", "KEY=value", "A=1,B=2", "KEYONLY", "=value"} {
+		_, parseErr := parseEnv(in)
+		validErr := validEnv(in)
+		if (parseErr == nil) != (validErr == nil) {
+			t.Errorf("parseEnv(%q) err=%v but validEnv(%q) err=%v — they must agree", in, parseErr, in, validErr)
+		}
+	}
+}
+
+// TestExtraServiceWithoutARouteHasNoPath — the same rule settle() applies to
+// AI/Slack: a hidden group keeps whatever it held before it was hidden, so
+// declining the route must clear the path or the plan would describe one
+// that was never asked for. Exercised through toSpec/answerRoutes rather than
+// askOneService's own hide-then-clear, which needs a terminal.
+func TestExtraServiceWithoutARouteHasNoPath(t *testing.T) {
+	a := Answers{
+		Name: "shop", Image: "i", Tag: "v1", Port: 8080,
+		ExtraServices: []ServiceAnswer{
+			{Name: "worker", Image: "i", Tag: "v1", Port: 9091, Route: false, Path: "/leftover"},
+		},
+	}
+	if routes := answerRoutes(a); len(routes) != 0 {
+		t.Errorf("a service that declined a route still produced one: %+v", routes)
+	}
+}
+
+// TestDuplicateServiceNamesAreRefused — spec.App.Validate already refuses a
+// duplicate service name; toSpec must feed it every service, base and extra,
+// or a duplicate would only be caught when onboard reads the file back.
+func TestDuplicateServiceNamesAreRefused(t *testing.T) {
+	a := Answers{
+		Name: "shop", Image: "i", Tag: "v1", Port: 8080,
+		ExtraServices: []ServiceAnswer{{Name: "shop", Image: "i", Tag: "v1", Port: 9091}},
+	}
+	if err := toSpec(a).Validate(); err == nil {
+		t.Fatal("two services named `shop` were accepted")
 	}
 }
 
@@ -1071,6 +1245,39 @@ func TestTheGitopsRepoFlagWins(t *testing.T) {
 	}
 }
 
+// TestInitForwardsTheImagePreflightToOnboard.
+//
+// A spy for a collaborator hides whatever that collaborator validates — every
+// test above injects a fake onboard.Run, so nothing about what init *passes* it
+// is exercised by the happy path, which is exactly how v0.10.1 shipped an init
+// that onboarded with no GitopsRepo at all. Assert on what init passes, not just
+// that it called the next thing.
+func TestInitForwardsTheImagePreflightToOnboard(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	inspect := func(ref string) (image.Manifest, error) {
+		return image.Manifest{Ref: ref, Platforms: []image.Platform{{OS: "linux", Arch: "amd64"}}}, nil
+	}
+	s := &spy{}
+	opts := base(root, s)
+	opts.InspectImage = inspect
+	opts.SkipImageCheck = true
+	if err := Run(opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.onboarded) != 1 {
+		t.Fatalf("onboard was called %d times, want 1", len(s.onboarded))
+	}
+	if s.onboarded[0].Inspect == nil {
+		t.Error("init did not forward its registry lookup to onboard — " +
+			"the image preflight would run with no inspector and silently skip every check")
+	}
+	if !s.onboarded[0].SkipImageCheck {
+		t.Error("init did not forward --skip-image-check to onboard")
+	}
+}
+
 // TestAnInvalidApplicationReportsTheFieldsAtFault.
 //
 // kubectl puts the headline on the first line and the diagnosis on the ones
@@ -1099,31 +1306,9 @@ func TestAnInvalidApplicationReportsTheFieldsAtFault(t *testing.T) {
 	}
 }
 
-func TestReasonFoldsAComplaintIntoOneSentence(t *testing.T) {
-	cases := []struct {
-		name, in, want string
-	}{
-		{"empty", "", "no output"},
-		{"one line", "error: no such file", "error: no such file"},
-		{
-			"headline plus fields",
-			"The Application \"demo\" is invalid: \n* spec.project: Required value\n",
-			`The Application "demo" is invalid: spec.project: Required value`,
-		},
-		{
-			"more than can be shown",
-			"invalid:\n* a\n* b\n* c\n* d\n* e\n",
-			"invalid: a; b; c; d, …",
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := reason(c.in); got != c.want {
-				t.Errorf("reason() = %q, want %q", got, c.want)
-			}
-		})
-	}
-}
+// TestReasonFoldsAComplaintIntoOneSentence moved to internal/deploy — see
+// deploy_test.go. TestAnInvalidApplicationReportsTheFieldsAtFault above still
+// exercises it end to end, through Run().
 
 // TestGoingBackAndSayingSkipLeavesNoCredential.
 //
@@ -1338,7 +1523,10 @@ func TestAnEmptyCredentialTurnsItsCapabilityOff(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got := c.in
 			settle(&got)
-			if got != c.want {
+			// DeepEqual, not !=, since Answers gained slice fields (Env,
+			// ExtraServices) in 14.1 and a struct holding a slice is no
+			// longer comparable with ==.
+			if !reflect.DeepEqual(got, c.want) {
 				t.Errorf("settle(%+v)\n = %+v\nwant %+v", c.in, got, c.want)
 			}
 		})

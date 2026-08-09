@@ -84,6 +84,11 @@ func Screen(opts Options) error {
 	pods, observed := observePods(kube, app)
 	res := Build(root, app, pods, observed)
 
+	// Why, not just that (14.5). Asked only for the pods Build already
+	// decided are broken, with the same kubectl the pod table came from —
+	// one more question to the cluster this screen already reached.
+	attachDiagnoses(kube, app.Namespace, res.Pods)
+
 	// The logins are fetched here rather than in Build because Build is pure and
 	// they are a question for the cluster — the same cluster the pods above came
 	// from, asked with the same kubectl, so the screen is one answer and not two.

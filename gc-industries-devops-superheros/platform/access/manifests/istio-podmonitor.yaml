@@ -1,0 +1,51 @@
+###############################################################################
+# Scrapes every istio-proxy sidecar's own metrics endpoint, so
+# istio_requests_total (and everything else Kiali's traffic graph is drawn
+# from) exists in Prometheus at all (14.10, B5).
+#
+# Kiali reads Istio *config* over the Kubernetes API and *metrics* over
+# Prometheus — two independent paths, and this file is the second one. Fixing
+# only Kiali's prometheus.url (platform/access/kiali/values.yaml) still leaves
+# an empty graph, because nothing was scraping the sidecars to begin with: no
+# PodMonitor existed anywhere in this repo. Kiali's own Istio-config check
+# stays ✓ throughout — that half was never broken, which is what made this
+# fault easy to miss.
+#
+# Shape is Istio's own documented Prometheus integration
+# (istio.io/latest/docs/ops/integrations/prometheus/), unmodified: scrape the
+# istio-proxy container on every pod, at its own stats endpoint.
+#
+# The `release: prometheus` label is not decoration. kube-prometheus-stack's
+# Prometheus only selects a PodMonitor carrying its own Helm release name
+# unless podMonitorSelector is overridden — the exact selector-label fault
+# 13.4 found for the alert rules (`release: monitoring` left behind after a
+# rename to `prometheus`), one resource kind over. See
+# cli/internal/platform/kiali_test.go for the test that reads this file and
+# the installer that applies it.
+###############################################################################
+
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: istio-proxies
+  namespace: istio-system
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchExpressions:
+      - key: istio-prometheus-ignore
+        operator: DoesNotExist
+  podMetricsEndpoints:
+    - path: /stats/prometheus
+      interval: 15s
+      relabelings:
+        - action: keep
+          sourceLabels: [__meta_kubernetes_pod_container_name]
+          regex: "istio-proxy"
+        - action: replace
+          sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - action: replace
+          sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod

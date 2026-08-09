@@ -51,8 +51,17 @@ external_services:
   # kube-prometheus-stack's Prometheus, in the monitoring namespace. Without
   # this Kiali draws the graph with no traffic on it — it knows the shape of
   # the mesh from Istio and the rates from Prometheus.
+  #
+  # The /prometheus suffix is not optional (14.10, B5). Prometheus is told
+  # routePrefix: /prometheus in platform/monitoring/values/kind/prometheus-values.yaml
+  # so it can sit behind the platform's single localhost:8080 ingress —
+  # routePrefix changes what the pod actually *serves*, not merely what a
+  # browser sees, so every request Kiali sends without it 404s. Kiali's own
+  # Istio-config check still reads ✓, because that half comes over the
+  # Kubernetes API rather than this URL — a green console beside a dead
+  # metrics path is exactly what that split produces.
   prometheus:
-    url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+    url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/prometheus
 
   # Grafana gets two URLs because Kiali needs both: one it calls itself, and one
   # it puts in a link for the browser. The browser cannot resolve a cluster DNS

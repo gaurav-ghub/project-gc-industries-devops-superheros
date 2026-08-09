@@ -19,11 +19,14 @@ import (
 
 	"github.com/gc-ghub/endurance/internal/canary"
 	"github.com/gc-ghub/endurance/internal/catalog"
+	"github.com/gc-ghub/endurance/internal/deploy"
 	"github.com/gc-ghub/endurance/internal/features"
 	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/image"
 	"github.com/gc-ghub/endurance/internal/initcmd"
 	"github.com/gc-ghub/endurance/internal/notify"
 	"github.com/gc-ghub/endurance/internal/observe"
+	"github.com/gc-ghub/endurance/internal/offboard"
 	"github.com/gc-ghub/endurance/internal/onboard"
 	"github.com/gc-ghub/endurance/internal/platform"
 	"github.com/gc-ghub/endurance/internal/policy"
@@ -70,9 +73,15 @@ func main() {
 	case "config":
 		err = cmdConfig(args)
 
-	// The application half: these only write git.
+	// The application half: these write git, and (deploy, and onboard with
+	// --deploy) the one thing beyond git — telling ArgoCD an application
+	// exists. Everything a workload needs is still ArgoCD's to create.
 	case "onboard":
 		err = cmdOnboard(args)
+	case "deploy":
+		err = cmdDeploy(args)
+	case "offboard":
+		err = cmdOffboard(args)
 	case "catalog":
 		err = cmdCatalog(args)
 	case "logs":
@@ -117,11 +126,11 @@ func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	root := fs.String("root", "", "platform repo root (default: auto-detect)")
 	name := fs.String("name", "", "application name (default: asked, or "+initcmd.DefaultName+")")
-	image := fs.String("image", "", "container image, with its registry (default: "+initcmd.DefaultImage+")")
+	img := fs.String("image", "", "container image, with its registry (default: "+initcmd.DefaultImage+")")
 	tag := fs.String("tag", "", "image tag (default: "+initcmd.DefaultTag+"; `latest` is refused by the policy gate)")
 	owner := fs.String("owner", "", "owning team (default: git config user.name)")
-	repo := fs.String("app-repo", "", "the application's own source repo, recorded in the registry")
-	gitopsRepo := fs.String("gitops-repo", "", "repo URL ArgoCD watches (default: this repo's origin remote)")
+	repo := fs.String("app-repo", "", "the application's own source repo (spec: `sourceRepo`) — recorded, never cloned")
+	gitopsRepo := fs.String("gitops-repo", "", "repo URL ArgoCD watches — the PLATFORM repo (default: this repo's origin remote)")
 	path := fs.String("path", "", "URL path on the platform's host (default: / if free, else /<app>)")
 	port := fs.Int("port", 0, "container port (default: "+fmt.Sprint(initcmd.DefaultPort)+")")
 	noRoute := fs.Bool("no-route", false, "do not give the application a URL")
@@ -129,17 +138,19 @@ func cmdInit(args []string) error {
 	yes := fs.Bool("yes", false, "accept the plan without confirming")
 	dryRun := fs.Bool("dry-run", false, "print the plan and stop")
 	skipBootstrap := fs.Bool("skip-bootstrap", false, "the platform is already up; do not check")
+	skipImage := fs.Bool("skip-image-check", false, "break glass: report images that cannot run here but do not block")
 	noWait := fs.Bool("no-wait", false, "do not wait for ArgoCD to sync")
 	timeout := fs.Duration("timeout", initcmd.DefaultTimeout, "how long to wait for ArgoCD")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	return initcmd.Run(initcmd.Options{
-		Root: *root, Name: *name, Image: *image, Tag: *tag, Owner: *owner,
+		Root: *root, Name: *name, Image: *img, Tag: *tag, Owner: *owner,
 		Repo: *repo, Path: *path, Port: *port, NoRoute: *noRoute, NoMesh: *noMesh,
 		GitopsRepo: *gitopsRepo,
 		Yes:        *yes, DryRun: *dryRun, SkipBootstrap: *skipBootstrap,
 		NoWait: *noWait, Timeout: *timeout,
+		InspectImage: image.DefaultInspector(), SkipImageCheck: *skipImage,
 	})
 }
 
@@ -220,6 +231,11 @@ func cmdFeature(args []string, enable bool) error {
 	}
 	opts := features.Options{Root: *root, Yes: *yes}
 	if enable {
+		// Validate where the credential is given (14.8) — nil elsewhere (every
+		// test, the headless path) skips the check; only the real CLI reaches
+		// for the network.
+		opts.ValidateKey = features.DefaultKeyValidator()
+		opts.ValidateWebhookLive = features.DefaultWebhookValidator()
 		return features.Enable(name, opts)
 	}
 	return features.Disable(name, opts)
@@ -281,17 +297,77 @@ func cmdOnboard(args []string) error {
 	root := fs.String("root", ".", "platform repo root")
 	repo := fs.String("gitops-repo", defaultGitopsRepo, "repo URL ArgoCD watches")
 	commit := fs.Bool("commit", false, "stage and commit the generated files (never pushes)")
-	from := fs.String("from", "", "non-interactive: load the app spec from this YAML file")
+	from := fs.String("from", "", "required: load the app spec from this YAML file — `endurance init` writes one")
 	prefix := fs.String("path-prefix", "", "repo-relative prefix for ArgoCD source paths (default: auto-detect)")
 	policyDir := fs.String("policy-dir", "", "Kyverno policy directory (default <root>/"+policy.DefaultDir+")")
 	skipPolicy := fs.Bool("skip-policy", false, "break glass: report policy violations but do not block")
+	skipImage := fs.Bool("skip-image-check", false, "break glass: report images that cannot run here but do not block")
 	noNotify := fs.Bool("no-notify", false, "do not send the CLI notification for this run")
 	noMesh := fs.Bool("no-mesh", false, "keep the application out of the Istio mesh (interactive default; --from obeys the file)")
+	doDeploy := fs.Bool("deploy", false, "apply the Application and wait for ArgoCD (the same verb as `endurance deploy`)")
+	noWait := fs.Bool("no-wait", false, "--deploy: do not wait for ArgoCD to sync")
+	timeout := fs.Duration("timeout", deploy.DefaultTimeout, "--deploy: how long to wait for ArgoCD")
 	_ = fs.Parse(args)
 	return onboard.Run(onboard.Options{
 		Root: *root, GitopsRepo: *repo, Commit: *commit, From: *from, PathPrefix: *prefix,
 		PolicyDir: *policyDir, SkipPolicy: *skipPolicy, NoNotify: *noNotify, NoMesh: *noMesh,
+		SkipImageCheck: *skipImage,
+		// The registry lookup is supplied here and defaulted nowhere else, so
+		// that a test which forgets to inject a fake gets a skip rather than a
+		// real `docker manifest inspect`.
+		Inspect: image.DefaultInspector(),
+		Deploy:  *doDeploy,
+		NoWait:  *noWait,
+		Timeout: *timeout,
 	})
+}
+
+// cmdDeploy is the verb 14.2 added. `onboard` writes
+// apps/<app>/application.yaml and — without this — nothing ever applies it:
+// two of three applications in the first outside run needed `kubectl apply`
+// typed by hand because `init` had it privately and no command in this list
+// did. `init` calls the exact function below directly; this is the same thing
+// on its own, for the application already registered by `onboard`.
+func cmdDeploy(args []string) error {
+	fs := flag.NewFlagSet("deploy", flag.ExitOnError)
+	root := fs.String("root", ".", "platform repo root")
+	noWait := fs.Bool("no-wait", false, "do not wait for ArgoCD to sync")
+	timeout := fs.Duration("timeout", deploy.DefaultTimeout, "how long to wait for ArgoCD")
+	app, err := parsePositional(fs, args, "endurance deploy <app>")
+	if err != nil {
+		return err
+	}
+	render.Banner(version.Current)
+	render.Section("Deploy · " + app)
+	synced, err := deploy.Run(deploy.Options{
+		Root: *root, App: app, NoWait: *noWait, Timeout: *timeout,
+	})
+	if err != nil {
+		return err
+	}
+	if synced {
+		render.Success("endurance status " + app + "   for the full picture")
+	}
+	return nil
+}
+
+// cmdOffboard is the verb 14.6 added: onboard's inverse. Deletes the ArgoCD
+// Application, then the namespace — in that order, because selfHeal
+// recreates a namespace deleted first — and removes apps/<app>/ and
+// specs/<app>.yaml from the repo. `apps/bad-app`, a leftover from an earlier
+// run, cost Phase 13's live run twenty minutes by making a later `init` an
+// edit instead of a create; this is the two hand-typed kubectl commands that
+// cleared it, as one command that asks first.
+func cmdOffboard(args []string) error {
+	fs := flag.NewFlagSet("offboard", flag.ExitOnError)
+	root := fs.String("root", ".", "platform repo root")
+	yes := fs.Bool("yes", false, "do not ask for confirmation")
+	commit := fs.Bool("commit", false, "stage and commit the removal (never pushes)")
+	app, err := parsePositional(fs, args, "endurance offboard <app>")
+	if err != nil {
+		return err
+	}
+	return offboard.Run(offboard.Options{Root: *root, App: app, Yes: *yes, Commit: *commit})
 }
 
 // parsePositional parses a flag set that takes one leading positional argument
@@ -677,7 +753,16 @@ Platform commands (operator):
                       destroy and uninstall are different removals
 
 Application commands (developer):
-  onboard             Register and generate GitOps files for an application
+  onboard             Register and generate GitOps files from --from <spec> —
+                      the non-interactive door; init writes the spec and asks
+                      the questions. --deploy also applies it and waits for
+                      ArgoCD
+  deploy <app>        Apply an already-registered application's ArgoCD
+                      Application and wait for it to sync — the only command
+                      that touches the cluster (never a workload; ArgoCD
+                      creates those)
+  offboard <app>      onboard's inverse: deletes the ArgoCD Application, then
+                      the namespace, then apps/<app>/ and specs/<app>.yaml
   catalog list        List registered applications
   catalog get <app>   One application: services, pods, URLs, what to type next
   logs <app>          Its logs, via kubectl; --service narrows to one
@@ -704,7 +789,10 @@ Init flags:
   --tag <tag>           image tag (` + "`latest`" + ` is refused by the policy gate)
   --port <n>            container port
   --path </p>           URL path on the platform's host
-  --app-repo <url>      the application's own source repo, recorded only
+  --app-repo <url>      the application's own source repo — recorded, never
+                        cloned. In a spec file it is ` + "`sourceRepo`" + `, and it is
+                        NOT --gitops-repo, which is the platform repo ArgoCD
+                        watches. Both are GitHub URLs; only one is yours
   --owner <team>        default: git config user.name
   --no-route            do not give the application a URL
   --no-mesh             keep it out of the Istio mesh (default: in it, one sidecar per pod)
@@ -748,9 +836,25 @@ is a front door, not a rewrite.
 Onboard flags:
   --root <dir>          platform repo root (default ".")
   --gitops-repo <url>   repo URL ArgoCD watches
-  --from <file>         non-interactive: load the app spec from YAML
+  --from <file>         required: load the app spec from YAML — endurance init writes one
   --path-prefix <p>     repo-relative prefix for ArgoCD paths (default: auto)
   --commit              stage + commit generated files (never pushes)
+  --deploy              also apply the Application and wait for ArgoCD — off
+                        by default, since onboard is also the automation entry
+                        point and must not reach for a cluster CI never asked
+                        about
+  --no-wait             --deploy: do not wait for ArgoCD to sync
+  --timeout <dur>       --deploy: how long to wait for ArgoCD (default 6m)
+
+Deploy flags:
+  --root <dir>          platform repo root (default ".")
+  --no-wait             do not wait for ArgoCD to sync
+  --timeout <dur>       how long to wait for ArgoCD (default 6m)
+
+Offboard flags:
+  --root <dir>          platform repo root (default ".")
+  --yes                 do not ask for confirmation
+  --commit              stage + commit the removal (never pushes)
 
 Release flags:
   --service <name>      the service to promote (required)

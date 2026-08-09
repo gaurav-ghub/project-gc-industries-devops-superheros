@@ -37,6 +37,17 @@ func repoRoot(t *testing.T) string {
 // "What have I onboarded" is a question about this repo, not about kubernetes,
 // and it must work on a laptop with no cluster and no kubectl. The proof is that
 // nothing in this package can call one: List takes a root and no kubectl at all.
+//
+// This test reads apps/superheros/app.yaml from disk at runtime, which `go
+// test`'s cache cannot see — a change to that file between runs is invisible
+// to the cache, so a stale PASS can survive until something forces `-count=1`.
+// That is exactly what happened to this test's own "route /" assertion: it
+// was written in Phase 11 when superheros had one route, went stale the
+// moment Phase 13 gave superheros three (`routes:`, plural — catalog.go
+// renders "N routes" for more than one), and nothing surfaced it until Phase
+// 14's Part A ran with `-count=1`. Asserting the plural form here is what
+// keeps this test honest about the file it actually reads, not what
+// superheros looked like when the test was written.
 func TestCatalogListIsAnsweredFromFilesAlone(t *testing.T) {
 	root := repoRoot(t)
 	buf := capture(t)
@@ -49,7 +60,7 @@ func TestCatalogListIsAnsweredFromFilesAlone(t *testing.T) {
 		t.Errorf("the registered application is missing:\n%s", got)
 	}
 	// The facts on the line all come from apps/superheros/app.yaml.
-	for _, want := range []string{"5 services", "canary catalog", "route /"} {
+	for _, want := range []string{"5 services", "canary catalog", "3 routes"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the row does not carry %q:\n%s", want, got)
 		}

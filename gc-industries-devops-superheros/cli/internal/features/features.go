@@ -33,7 +33,10 @@
 package features
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,10 +56,14 @@ import (
 // configured by. Both paths are the ones the bash modules already read — this
 // package adds a way to write them, not a second place to look.
 const (
-	AISecretFile   = "platform/ai/secret.yaml"
-	AIExampleFile  = "platform/ai/secret.example.yaml"
-	AISecretName   = "superhero-ai-secret"
-	AINamespace    = "monitoring"
+	AISecretFile  = "platform/ai/secret.yaml"
+	AIExampleFile = "platform/ai/secret.example.yaml"
+	AISecretName  = "superhero-ai-secret"
+	AINamespace   = "monitoring"
+	// AIDeployment is what actually reads the Secret. A changed Secret does
+	// not reach a running pod on its own, so enableAI restarts this after
+	// applying one (14.8).
+	AIDeployment   = "deployment/superhero-ai-alertmanager"
 	SlackFile      = "platform/gitops/argocd/values.slack.yaml"
 	SlackExample   = "platform/gitops/argocd/values.slack.yaml.example"
 	placeholderTag = "<your-" // what the example files use, and what a half-filled copy still has
@@ -126,6 +133,91 @@ type Options struct {
 	Confirm func(prompt string) (bool, error)
 	Kubectl func(args ...string) (string, error)
 	Now     func() string // tests pin the timestamp in the generated header
+
+	// ValidateKey and ValidateWebhookLive ask the service a credential
+	// belongs to whether it actually works, before anything is written (14.8,
+	// B3). `enable ai` used to accept an OpenAI key with no validating call at
+	// all, and a wrong one surfaced minutes later inside an enriched Slack
+	// message about an unrelated pod: "(AI enrichment unavailable: Error code:
+	// 401 …)" — the failure arrived in the output of the feature it had
+	// disabled. One request to /v1/models at the prompt catches it in a
+	// second, and the same request shape validates a Slack webhook.
+	//
+	// nil skips the check, the same as image.Options.Inspect and
+	// onboard.Options.Inspect: writing the file is still useful on a machine
+	// with no network, and **no test may make a real request** — the CLI is
+	// the only caller that supplies DefaultKeyValidator / DefaultWebhookValidator.
+	ValidateKey         KeyValidator
+	ValidateWebhookLive WebhookValidator
+}
+
+// KeyValidator asks the service a credential belongs to whether the
+// credential actually works.
+type KeyValidator func(key string) error
+
+// WebhookValidator is the same question for a webhook URL.
+type WebhookValidator func(url string) error
+
+// validateTimeout bounds a validation request. Short on purpose: this runs at
+// a prompt somebody is sitting in front of, not in the background.
+const validateTimeout = 5 * time.Second
+
+// DefaultKeyValidator asks OpenAI's own API whether a key works — the same
+// endpoint the enricher itself calls when it uses the key for real, so a
+// wrong key is caught here instead of inside a Slack message about an
+// unrelated pod.
+//
+// The response body is never surfaced, on purpose. OpenAI's own 401 message
+// echoes a masked fragment of the key back ("Incorrect API key provided:
+// sk-...xyz"), and this package's whole rule is that a credential is never
+// printed back — not even a fragment of one borrowed from someone else's
+// error message. The refusal names the HTTP status and nothing else.
+func DefaultKeyValidator() KeyValidator {
+	return func(key string) error {
+		req, err := http.NewRequest(http.MethodGet, "https://api.openai.com/v1/models", nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := (&http.Client{Timeout: validateTimeout}).Do(req)
+		if err != nil {
+			return fmt.Errorf("could not reach the OpenAI API: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		return fmt.Errorf("the OpenAI API rejected this key (HTTP %d) — check it and try again", resp.StatusCode)
+	}
+}
+
+// DefaultWebhookValidator posts a short confirmation message through the
+// webhook — the same request `endurance notify test` already sends on
+// purpose, so a wrong URL is caught here rather than the first time ArgoCD
+// tries to report a deploy through it.
+func DefaultWebhookValidator() WebhookValidator {
+	return func(url string) error {
+		body, err := json.Marshal(map[string]string{
+			"text": "Endurance: this webhook is now configured for deploy notifications.",
+		})
+		if err != nil {
+			return err
+		}
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := (&http.Client{Timeout: validateTimeout}).Do(req)
+		if err != nil {
+			return fmt.Errorf("could not reach the webhook: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		return fmt.Errorf("the webhook rejected this request (HTTP %d) — check the URL and try again", resp.StatusCode)
+	}
 }
 
 func realKubectl(args ...string) (string, error) {
@@ -192,6 +284,21 @@ func enableAI(root string, f Feature, opts Options, ask Asker) error {
 		return err
 	}
 
+	// Validate where the credential is given (14.8), not minutes later inside
+	// a Slack message about a pod this key has nothing to do with.
+	if opts.ValidateKey != nil {
+		if err := opts.ValidateKey(key); err != nil {
+			return fmt.Errorf("the OpenAI key was not accepted: %w", err)
+		}
+		render.Success("the OpenAI API accepted this key")
+	}
+	if hook != "" && opts.ValidateWebhookLive != nil {
+		if err := opts.ValidateWebhookLive(hook); err != nil {
+			return fmt.Errorf("the Slack webhook was not accepted: %w", err)
+		}
+		render.Success("the webhook accepted a test message")
+	}
+
 	path, err := WriteAI(root, key, hook, stamp(opts))
 	if err != nil {
 		return err
@@ -217,8 +324,17 @@ func enableAI(root string, f Feature, opts Options, ask Asker) error {
 		return nil
 	}
 	render.Success("applied Secret " + AISecretName + " to namespace " + AINamespace)
-	render.Info("the enricher reads it at startup — restart it to pick this up:")
-	render.Detail("kubectl -n " + AINamespace + " rollout restart deployment/superhero-ai-alertmanager")
+
+	// A changed Secret does not reach a running pod on its own, and this
+	// command used to print the restart instead of running it — the same
+	// shape as 14.2's missing verb, one layer down: a tool that knows the
+	// exact command and hands it to a person has not finished (14.8, B3).
+	if out, err := kube("-n", AINamespace, "rollout", "restart", AIDeployment); err != nil {
+		render.Warn("could not restart the enricher: " + firstLine(out))
+		render.Detail("kubectl -n " + AINamespace + " rollout restart " + AIDeployment)
+		return nil
+	}
+	render.Success("restarted " + AIDeployment + " · the enricher now reads this Secret")
 	return nil
 }
 
@@ -262,6 +378,16 @@ func enableSlack(root string, f Feature, opts Options, ask Asker) error {
 	}
 	if err := ValidateWebhook(hook); err != nil {
 		return err
+	}
+
+	// Validate where the credential is given (14.8): the same fix as
+	// enable ai's key, for the webhook `endurance notify test` and every
+	// ArgoCD deploy notification will otherwise be the first thing to try it.
+	if opts.ValidateWebhookLive != nil {
+		if err := opts.ValidateWebhookLive(hook); err != nil {
+			return fmt.Errorf("the Slack webhook was not accepted: %w", err)
+		}
+		render.Success("the webhook accepted a test message")
 	}
 
 	if _, err := WriteSlack(root, hook, stamp(opts)); err != nil {

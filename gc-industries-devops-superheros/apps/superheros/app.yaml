@@ -2,7 +2,7 @@
 ---
 name: superheros
 namespace: superheros
-repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+sourceRepo: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
 owner: gc-industries
 mesh:
     enabled: true
@@ -21,7 +21,7 @@ routes:
     - enabled: true
       path: /
       service: frontend
-      port: 80
+      port: 8080
       gateway: istio-system/endurance-gateway
 notify:
     enabled: true
@@ -30,7 +30,7 @@ services:
     - name: frontend
       image: docker.io/dockergc00/superheros-frontend
       tag: v1-9c6f729
-      port: 80
+      port: 8080
       replicas: 1
       resources:
         requests:

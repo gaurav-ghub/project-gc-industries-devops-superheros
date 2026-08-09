@@ -22,6 +22,13 @@ type Pod struct {
 	Name   string
 	Status string // "Running", "ContainerCreating", "CrashLoopBackOff"
 	State  State
+	// Detail is why, for a pod that is not simply "not ready yet" (14.5).
+	// `status` used to offer a `kubectl logs` line to type for a pod already
+	// reporting CrashLoopBackOff; both real causes the first outside run hit
+	// — a missing env var, a permission denial — were one `kubectl logs`
+	// away, and the platform explained neither. Empty for anything Ready or
+	// merely Pending: a healthy or still-starting pod has nothing to explain.
+	Detail []string
 }
 
 // A Hint is a command worth running next.
@@ -268,6 +275,9 @@ func (r *Renderer) podLines(pods []Pod) []string {
 			line += "  " + r.muted.Render(p.Status)
 		}
 		out = append(out, strings.TrimRight(line, " "))
+		for _, d := range p.Detail {
+			out = append(out, detailIndent+r.faint.Render(d))
+		}
 	}
 	return out
 }

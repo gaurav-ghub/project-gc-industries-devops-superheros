@@ -19,13 +19,13 @@ routes:
     - enabled: true
       path: /
       service: frontend
-      port: 80
+      port: 8080
       gateway: istio-system/endurance-gateway
 services:
     - name: frontend
       image: docker.io/dockergc00/superheros-frontend
       tag: v1-9c6f729
-      port: 80
+      port: 8080
       replicas: 1
       resources:
         requests:

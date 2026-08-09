@@ -65,6 +65,7 @@ KIALI_VALUES="${ACCESS_DIR}/kiali/values.yaml"
 
 GATEWAY_NAME="endurance-gateway"
 DASHBOARDS_NAME="endurance-dashboards"
+ISTIO_PODMONITOR_NAME="istio-proxies"
 
 
 install_access() {
@@ -78,6 +79,8 @@ install_access() {
     install_kiali
 
     apply_platform_routes
+
+    apply_istio_metrics
 
     verify_access_installation
 
@@ -283,6 +286,34 @@ apply_platform_routes() {
     echo
 
     log_success "Ingress Gateway and platform routes applied."
+
+    echo
+
+}
+
+
+###############################################################################
+# Mesh metrics
+###############################################################################
+
+# apply_istio_metrics is the second half of 14.10 (B5). Kiali reads Istio
+# config over the Kubernetes API and traffic over Prometheus, and only the
+# second was ever broken — no PodMonitor existed anywhere in this repo, so
+# istio_requests_total never existed for Kiali's graph to read even after its
+# own prometheus.url is fixed. Access runs last in the bootstrap chain, so both
+# of this PodMonitor's dependencies — the Prometheus Operator's CRDs and the
+# istio-proxy sidecars it scrapes — are already up by the time this runs.
+apply_istio_metrics() {
+
+    log_info "Applying the Istio sidecar PodMonitor..."
+
+    echo
+
+    kubectl apply -f "${ACCESS_MANIFESTS}/istio-podmonitor.yaml"
+
+    echo
+
+    log_success "Istio sidecar PodMonitor applied."
 
     echo
 

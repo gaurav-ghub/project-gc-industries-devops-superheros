@@ -76,7 +76,29 @@ package version
 //	        tag, which refuses to publish when the tag and this constant disagree,
 //	        and a release build is stamped with the commit and date it came from
 //	        so `endurance version` can tell a release from a working tree
-const Current = "v0.11.0"
+//	v0.12.0 one way to onboard — what the first two outside runs found about
+//	        what a person actually types. `init` asks for N services, routes and
+//	        per-service env, so a multi-service application never needs an
+//	        editor, and it stages the spec it writes; `onboard` keeps `--from`
+//	        and stops being a second interactive experience, on the same code
+//	        path. `deploy` exists at last — the ArgoCD Application was a file in
+//	        the repo that nothing applied, so two of three applications in the
+//	        run needed `kubectl apply` typed by hand — and `offboard` is
+//	        onboard's inverse, deleting the Application before the namespace
+//	        because selfHeal recreates a namespace deleted first. The gate that
+//	        refuses `latest` now also refuses an image that cannot run here at
+//	        all: one that publishes no manifest for this cluster's architecture,
+//	        and one that wants a privileged port under the non-root UID every
+//	        Endurance values file mandates — both before a file is written.
+//	        `status` says why a pod broke instead of offering a `kubectl logs`
+//	        line to type. `enable ai` and `enable slack` validate the credential
+//	        at the prompt rather than letting a 401 surface minutes later inside
+//	        a Slack message about an unrelated pod, and `enable ai` runs the
+//	        rollout restart its own Secret change requires. `repository:` became
+//	        `sourceRepo:`, with the old spelling kept as an alias. And a build
+//	        line that identifies a build: two binaries one phase apart both said
+//	        v0.11.0, correctly, and only one of them generated the mesh block
+const Current = "v0.12.0"
 
 // Commit and Built are stamped into a release build by the release workflow:
 //
@@ -91,22 +113,11 @@ const Current = "v0.11.0"
 // This is provenance, not proof: anyone can pass the same ldflags by hand.
 // Nothing here is a security boundary, and the question it answers is the one
 // people actually ask — "is this the thing I installed, or the thing I built?"
+//
+// Phase 14 added the other half of that answer in build.go, because a dev build
+// carries neither of these and two dev builds of one version are precisely the
+// pair Phase 13's live run could not tell apart.
 var (
 	Commit string // short SHA the release was built from
 	Built  string // RFC 3339 date it was built
 )
-
-// IsRelease reports whether this binary came out of the release workflow.
-func IsRelease() bool { return Commit != "" }
-
-// Provenance is the one phrase `endurance version` prints about this binary.
-func Provenance() string {
-	if !IsRelease() {
-		return "dev build — not installed from a release"
-	}
-	p := "release build · " + Commit
-	if Built != "" {
-		p += " · " + Built
-	}
-	return p
-}

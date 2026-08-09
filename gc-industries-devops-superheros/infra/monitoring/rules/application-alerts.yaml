@@ -185,6 +185,16 @@ spec:
         # Succeeded pods are subtracted: a completed Job reports its containers
         # as not-ready forever, and alerting on a finished Job would make this
         # rule permanently firing on any cluster that ever ran one.
+        #
+        # Its annotation below claims "no more specific alert explained why" —
+        # that used to be prose with nothing behind it (B4, Phase 13's live
+        # run): this rule fired alongside ImagePullFailing for the same pod,
+        # because nothing in PromQL inhibits anything. The mechanism is an
+        # Alertmanager inhibit_rule, keyed on namespace+pod, in
+        # platform/monitoring/values/kind/prometheus-values.yaml — PromQL is
+        # not where inhibition belongs, and a fifth alert added here without a
+        # matching name in that inhibit_rule's source_matchers would make the
+        # annotation false again.
         # ------------------------------------------------------------------
         - alert: PodContainerNotReady
           expr: |

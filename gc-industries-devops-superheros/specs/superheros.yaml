@@ -18,7 +18,18 @@
 
 name: superheros
 namespace: superheros
-repository: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+
+# Where this application's own code lives. Recorded in the registry entry and
+# never cloned — the platform builds no images and reads no application source.
+# It is NOT the repo ArgoCD watches: that is the platform repo, passed as
+# `--gitops-repo`, which defaults to this repo's origin remote. The two are both
+# GitHub URLs and were named `repository:` and `--gitops-repo` until v0.12.0,
+# which cost the first outside tester four edits of their own spec. `repository:`
+# still parses and is warned about; Endurance writes this spelling.
+#
+# For superheros the two happen to be the same URL, because customer #1 still
+# lives inside the platform repo. Phase 15 is where that stops being true.
+sourceRepo: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
 owner: gc-industries
 
 # Istio. Required by catalog's weighted versions below: the weights are enforced
@@ -119,10 +130,19 @@ notify:
   webhook: endurance-sink
 
 services:
+  # port 8080, not 80 (Phase 14's live regeneration proof found this): the
+  # image already switched to nginxinc/nginx-unprivileged, but its own
+  # nginx.conf still said `listen 80;`, so the container was still trying to
+  # bind a privileged port as UID 10001 with no NET_BIND_SERVICE capability —
+  # structurally impossible under this platform's mandatory security context,
+  # on any machine, regardless of the base image. The new 14.4 image preflight
+  # refused to regenerate this app until it was fixed here, in nginx.conf and
+  # in the Dockerfile's EXPOSE line — a rebuild under a new tag is still
+  # needed before this is live; v1-9c6f729 predates the fix.
   - name: frontend
     image: docker.io/dockergc00/superheros-frontend
     tag: v1-9c6f729
-    port: 80
+    port: 8080
     replicas: 1
   # catalog is the canary. Three versions of the same image run side by side
   # behind one Service; Istio decides which one serves each request. Note there

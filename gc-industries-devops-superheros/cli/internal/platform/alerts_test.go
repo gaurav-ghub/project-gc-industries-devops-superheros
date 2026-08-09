@@ -177,6 +177,112 @@ func TestNoAlertIsPinnedToOneApplication(t *testing.T) {
 	}
 }
 
+// promValues is the slice of prometheus-values.yaml this file reads, shared
+// by the route-matcher test above and the inhibit-rule test below.
+type promValues struct {
+	Alertmanager struct {
+		Config struct {
+			InhibitRules []struct {
+				SourceMatchers []string `yaml:"source_matchers"`
+				TargetMatchers []string `yaml:"target_matchers"`
+				Equal          []string `yaml:"equal"`
+			} `yaml:"inhibit_rules"`
+		} `yaml:"config"`
+	} `yaml:"alertmanager"`
+}
+
+func loadPromValues(t *testing.T, root string) promValues {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash("platform/monitoring/values/kind/prometheus-values.yaml"))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	var v promValues
+	if err := yaml.Unmarshal(data, &v); err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+	return v
+}
+
+// TestTheBackstopIsInhibitedByEverySpecificAlert is 14.9 (B4).
+//
+// `PodContainerNotReady`'s own annotation claims "no more specific alert
+// explained why" — prose describing a behaviour the expression did not have,
+// which is enforced by nothing: two Slack messages and two OpenAI calls fired
+// for one ImagePullBackOff pod in Phase 13's live run. The fix is an
+// Alertmanager inhibit_rule, not a PromQL change, so this test reads the
+// config that actually inhibits rather than the rule that cannot.
+//
+// It is verified to fail without the rule: delete the inhibit_rules block and
+// this reports zero rules targeting PodContainerNotReady, which is exactly
+// the state the live run found.
+func TestTheBackstopIsInhibitedByEverySpecificAlert(t *testing.T) {
+	root := repoRoot(t)
+	v := loadPromValues(t, root)
+
+	const backstop = "PodContainerNotReady"
+	var targeting []struct {
+		SourceMatchers []string
+		TargetMatchers []string
+		Equal          []string
+	}
+	for _, r := range v.Alertmanager.Config.InhibitRules {
+		for _, m := range r.TargetMatchers {
+			if strings.Contains(m, backstop) {
+				targeting = append(targeting, struct {
+					SourceMatchers []string
+					TargetMatchers []string
+					Equal          []string
+				}{r.SourceMatchers, r.TargetMatchers, r.Equal})
+			}
+		}
+	}
+	if len(targeting) == 0 {
+		t.Fatal("no inhibit_rule targets PodContainerNotReady — the backstop still fires " +
+			"alongside whatever alert actually explained the failure")
+	}
+	rule := targeting[0]
+
+	// Keyed on namespace+pod, or an inhibition for one pod would silence the
+	// backstop for every pod in the cluster.
+	if !containsAll(rule.Equal, "namespace", "pod") {
+		t.Errorf("inhibit_rule equal = %v, want at least [namespace pod] — otherwise this "+
+			"inhibits the backstop everywhere, not just for the pod that has a better explanation", rule.Equal)
+	}
+
+	// Every OTHER alert in the file the backstop is meant to defer to must be
+	// named in the source_matchers, or a newly-added specific alert leaves the
+	// backstop un-inhibited beside it — silently reopening B4 for that one alert.
+	pr := loadAlertRules(t, root)
+	sourceText := strings.Join(rule.SourceMatchers, " ")
+	for _, g := range pr.Spec.Groups {
+		for _, r := range g.Rules {
+			if r.Alert == backstop {
+				continue
+			}
+			if !strings.Contains(sourceText, r.Alert) {
+				t.Errorf("alert %s is not named in the inhibit_rule's source_matchers (%v) — "+
+					"it would fire alongside %s for the same pod, exactly like B4",
+					r.Alert, rule.SourceMatchers, backstop)
+			}
+		}
+	}
+}
+
+func containsAll(list []string, want ...string) bool {
+	have := map[string]bool{}
+	for _, l := range list {
+		have[l] = true
+	}
+	for _, w := range want {
+		if !have[w] {
+			return false
+		}
+	}
+	return true
+}
+
 // TestTheAlertsCoverHowDeploymentsActuallyFail is 13.5.
 //
 // `PodRestartingFrequently` over a [5m] increase window was the platform's

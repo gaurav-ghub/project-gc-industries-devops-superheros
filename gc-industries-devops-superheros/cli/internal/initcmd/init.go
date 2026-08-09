@@ -51,7 +51,6 @@
 package initcmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -61,8 +60,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/gc-ghub/endurance/internal/deploy"
 	"github.com/gc-ghub/endurance/internal/features"
 	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/image"
 	"github.com/gc-ghub/endurance/internal/onboard"
 	"github.com/gc-ghub/endurance/internal/platform"
 	"github.com/gc-ghub/endurance/internal/prompt"
@@ -90,18 +91,17 @@ const (
 	DefaultPort  = 8080
 )
 
-// waitPoll is how often the deploy step asks ArgoCD where it has got to, and
-// DefaultTimeout is how long it keeps asking.
+// DefaultTimeout is how long the deploy phase keeps polling ArgoCD, mirroring
+// deploy.DefaultTimeout so `endurance init --timeout` and `endurance deploy
+// --timeout` default to the same duration without one importing the other's
+// constant into its flag help text.
 //
 // Six minutes because that is comfortably longer than a first sync of a
 // single-service application and comfortably shorter than the patience of
 // somebody watching a terminal. A timeout is not a failure: it ends on the
 // success screen with whatever was actually observed, which for a run still
 // waiting on a push is exactly the right screen.
-const (
-	waitPoll       = 5 * time.Second
-	DefaultTimeout = 6 * time.Minute
-)
+const DefaultTimeout = deploy.DefaultTimeout
 
 // Options configures a guided first run.
 type Options struct {
@@ -132,6 +132,21 @@ type Options struct {
 	NoWait        bool // do not wait for ArgoCD; end on whatever is running now
 	Timeout       time.Duration
 
+	// InspectImage is the registry lookup the image preflight uses, forwarded to
+	// onboard.
+	//
+	// It is threaded through rather than resolved inside onboard because a
+	// package-level default is a call every test makes by accident. That it is
+	// *forwarded* is the part with a rule in it: every init test injects a fake
+	// Onboard, so nothing about what init passes onboard is exercised by the
+	// happy path — which is how v0.10.1 shipped an init that onboarded without a
+	// GitopsRepo. There is a test that asserts on this field's arrival.
+	InspectImage image.Inspector
+
+	// SkipImageCheck is break glass for the image preflight, forwarded the same
+	// way.
+	SkipImageCheck bool
+
 	// The edges of the world. Tests replace them; the CLI never sets any.
 	//
 	// Ask covers every question, credentials included — they are one form now,
@@ -150,10 +165,13 @@ type Options struct {
 	Kubectl   func(args ...string) (string, error)
 	Bootstrap func(platform.BootstrapOptions) error
 	Onboard   func(onboard.Options) error
-	Inspect   func(root string) platform.ClusterState
-	Health    func(root string) platform.Health
-	Now       func() time.Time
-	sleep     func(time.Duration)
+	// Deploy is the shared verb (14.2) — nil means deploy.Run, the same function
+	// `endurance deploy <app>` calls on its own.
+	Deploy  func(deploy.Options) (bool, error)
+	Inspect func(root string) platform.ClusterState
+	Health  func(root string) platform.Health
+	Now     func() time.Time
+	sleep   func(time.Duration)
 }
 
 // A Decision is what the user chose at the confirmation screen.
@@ -191,6 +209,23 @@ type Answers struct {
 	Path  string
 	Route bool
 
+	// Env is the first service's environment. issues.md §5b: the spec format
+	// has rendered per-service env since Phase 1 (values.yaml documents it,
+	// deployment.yaml renders it) and neither interactive form ever asked for
+	// it, so portfolio's backend exited at startup over a missing
+	// GITHUB_USERNAME and the platform explained nothing — a container that
+	// exits in under a second with a one-line reason on stdout is the easiest
+	// failure in Kubernetes to diagnose, and asking here is cheaper than that.
+	Env []spec.EnvVar
+
+	// ExtraServices is every service beyond the first — the N in "N services"
+	// (14.1). Each is asked in its own small form, the same shape `onboard`'s
+	// removed serviceForm used: a huh.Form cannot repeat a group an unknown
+	// number of times, so the loop is a Go for over separate form.Run() calls,
+	// exactly like the "Add another service?" loop onboard's interactive path
+	// had before this item removed it.
+	ExtraServices []ServiceAnswer
+
 	// Mesh is Istio membership, and it is the answer that used to be missing
 	// rather than defaulted. Nothing asked, so nothing ever said yes, so every
 	// pod of every application anybody onboarded ran without a sidecar on a
@@ -203,6 +238,24 @@ type Answers struct {
 
 	Slack     bool
 	SlackHook string
+}
+
+// ServiceAnswer is one service beyond the application's first.
+//
+// Route is asked per extra service rather than once for the whole
+// application, because a route names one service — `specs/superheros.yaml`
+// routes `/` to its frontend and `/api/catalog` to catalog, and a multi-service
+// application choosing which of its services face the platform's one host is
+// exactly this question asked once per service.
+type ServiceAnswer struct {
+	Name  string
+	Image string
+	Tag   string
+	Port  int
+	Env   []spec.EnvVar
+
+	Route bool
+	Path  string
 }
 
 // Run is the guided first run.
@@ -334,11 +387,14 @@ func Run(opts Options) error {
 		From:       gitops.SpecPath(root, answers.Name),
 		Commit:     true,
 		NoBanner:   true,
+
+		Inspect:        opts.InspectImage,
+		SkipImageCheck: opts.SkipImageCheck,
 	}); err != nil {
 		return err
 	}
 
-	deployed, err := deploy(root, answers, opts)
+	deployed, err := deployApp(root, answers, opts)
 	if err != nil {
 		return err
 	}
@@ -508,6 +564,7 @@ func askApplication(a *Answers, d Answers) error {
 	render.Blank()
 
 	port := strconv.Itoa(d.Port)
+	envStr := ""
 	form := prompt.Form(
 		huh.NewGroup(
 			huh.NewNote().Title("Your application").
@@ -529,6 +586,14 @@ func askApplication(a *Answers, d Answers) error {
 			huh.NewInput().Title("Source repository").
 				Description("optional · recorded in the registry entry, nothing is cloned from it").
 				Value(&a.Repo),
+			// A container that exits in under a second with a one-line reason on
+			// stdout is the easiest failure in Kubernetes to explain, and a
+			// missing required env var is the commonest one — portfolio's
+			// backend in the first outside run exited at startup over a missing
+			// GITHUB_USERNAME, and neither interactive form had ever asked.
+			huh.NewInput().Title("Environment variables").
+				Description("optional · KEY=value, comma-separated, e.g. LOG_LEVEL=info,PORT=8080").
+				Value(&envStr).Validate(validEnv),
 			// Asked, and asked here rather than among the capabilities, because
 			// it is a property of the application rather than a credential to
 			// hand over. Yes is the default and the answer almost everybody
@@ -550,13 +615,17 @@ func askApplication(a *Answers, d Answers) error {
 				Value(&a.AI),
 		),
 		huh.NewGroup(
+			// Validated live, on the same field, the moment it is given
+			// (14.8) — the OpenAI API rejecting this key used to surface
+			// minutes later, inside an enriched Slack message about an
+			// unrelated pod.
 			features.SecretField("OpenAI API key",
 				"masked · leave it empty to skip enrichment · written to platform/ai/secret.yaml, "+
 					"which is git-ignored, and never printed back",
-				false, &a.OpenAIKey),
+				false, &a.OpenAIKey).Validate(validOpenAIKeyLive),
 			features.SecretField("Slack incoming-webhook URL for enriched alerts",
 				"masked · optional, leave empty to enrich into the logs only",
-				false, &a.AISlackHook).Validate(optionalWebhook),
+				false, &a.AISlackHook).Validate(validWebhookLive),
 		).WithHideFunc(func() bool { return !a.AI }),
 
 		huh.NewGroup(
@@ -569,15 +638,145 @@ func askApplication(a *Answers, d Answers) error {
 			features.SecretField("Slack incoming-webhook URL",
 				"masked · leave it empty to skip notifications · written to "+
 					"platform/gitops/argocd/values.slack.yaml, which is git-ignored",
-				false, &a.SlackHook).Validate(optionalWebhook),
+				false, &a.SlackHook).Validate(validWebhookLive),
 		).WithHideFunc(func() bool { return !a.Slack }),
 	)
 	if err := form.Run(); err != nil {
 		return err
 	}
 	a.Port, _ = strconv.Atoi(port)
+	a.Env, _ = parseEnv(envStr) // already validated by the form
 	settle(a)
+
+	// N services (14.1). huh cannot repeat a group an unknown number of
+	// times, so — the same shape onboard's removed serviceForm loop used —
+	// this is a plain Go loop over separate small forms, run after the main
+	// one so the confirmation screen still describes every answer together.
+	if err := askExtraServices(a); err != nil {
+		return err
+	}
 	return nil
+}
+
+// askExtraServices loops "add another service?" until the answer is no. Each
+// yes opens one small form for that service — name, image, tag, port, env,
+// and whether it gets its own route, the same questions the main application
+// asked about its first service.
+func askExtraServices(a *Answers) error {
+	for {
+		more := false
+		if err := prompt.Run(huh.NewConfirm().
+			Title("Add another service?").
+			Description(fmt.Sprintf("%d service(s) so far: %s", 1+len(a.ExtraServices), serviceNamesSoFar(a))).
+			Affirmative("Yes").Negative("No, that's all").
+			Value(&more)); err != nil {
+			return err
+		}
+		if !more {
+			return nil
+		}
+		svc, err := askOneService(len(a.ExtraServices) + 2)
+		if err != nil {
+			return err
+		}
+		a.ExtraServices = append(a.ExtraServices, svc)
+	}
+}
+
+// serviceNamesSoFar lists the application's services for the "add another?"
+// prompt, so a developer three services in can see what they have typed
+// rather than only a count.
+func serviceNamesSoFar(a *Answers) string {
+	names := []string{orNone(a.Name)}
+	for _, s := range a.ExtraServices {
+		names = append(names, orNone(s.Name))
+	}
+	return strings.Join(names, ", ")
+}
+
+// askOneService asks everything about one service beyond the first, as its
+// own form — built through internal/prompt like every other form in this
+// tool, sharing the same validators the main application form uses so a
+// second service cannot pass a name or a tag the first would have been
+// refused for.
+func askOneService(n int) (ServiceAnswer, error) {
+	var s ServiceAnswer
+	port := ""
+	envStr := ""
+	form := prompt.Form(
+		huh.NewGroup(
+			huh.NewNote().Title(fmt.Sprintf("Service #%d", n)),
+			huh.NewInput().Title("Service name").
+				Description("lowercase, DNS-safe").
+				Value(&s.Name).Validate(validName),
+			huh.NewInput().Title("Container image").
+				Description("with its registry").
+				Value(&s.Image).Validate(nonEmpty("image")),
+			huh.NewInput().Title("Tag").
+				Description("`latest` is refused by the platform's own policy — pin it").
+				Value(&s.Tag).Validate(validTag),
+			huh.NewInput().Title("Container port").
+				Value(&port).Validate(validPort),
+			huh.NewInput().Title("Environment variables").
+				Description("optional · KEY=value, comma-separated").
+				Value(&envStr).Validate(validEnv),
+			// A route names one service. specs/superheros.yaml routes `/` to
+			// its frontend and `/api/catalog` to catalog — a multi-service
+			// application choosing which services face the platform's one
+			// host is this question, once per service.
+			huh.NewConfirm().Title("Give it its own URL?").
+				Description("a path on the platform's host, routed to this service").
+				Affirmative("Yes").Negative("No").
+				Value(&s.Route),
+		),
+		huh.NewGroup(
+			huh.NewInput().Title("URL path").
+				Description("where it answers on http://localhost:8080").
+				Value(&s.Path).Validate(validPath),
+		).WithHideFunc(func() bool { return !s.Route }),
+	)
+	if err := form.Run(); err != nil {
+		return s, err
+	}
+	s.Port, _ = strconv.Atoi(port)
+	s.Env, _ = parseEnv(envStr)
+	if !s.Route {
+		// The same rule settle() applies to a declined capability: a hidden
+		// group keeps whatever it held before it was hidden, so declining the
+		// route must clear the path or the plan would describe one that was
+		// never asked for.
+		s.Path = ""
+	}
+	return s, nil
+}
+
+// parseEnv reads "KEY=value,KEY2=value2" into the pairs the spec model wants.
+// An empty string is zero pairs, not an error — env is optional everywhere it
+// is asked.
+func parseEnv(s string) ([]spec.EnvVar, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	var out []spec.EnvVar
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(pair, "=")
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
+			return nil, fmt.Errorf("%q is not KEY=value", pair)
+		}
+		out = append(out, spec.EnvVar{Name: k, Value: strings.TrimSpace(v)})
+	}
+	return out, nil
+}
+
+func validEnv(s string) error {
+	_, err := parseEnv(s)
+	return err
 }
 
 // settle reconciles the capability switches with the credentials actually given.
@@ -618,6 +817,38 @@ func optionalWebhook(s string) error {
 		return nil
 	}
 	return features.ValidateWebhook(s)
+}
+
+// validOpenAIKeyLive asks OpenAI's own API whether the key works, the moment
+// it is given (14.8) — this is the field `endurance enable ai` validates the
+// same way, and this path is only ever reached from a real terminal: every
+// test that exercises init's form replaces Options.Ask wholesale, so this
+// makes exactly one real network call, and only when a human is at the
+// keyboard to see the result of it.
+func validOpenAIKeyLive(s string) error {
+	if strings.TrimSpace(s) == "" {
+		return nil // empty means declined; settle() clears it
+	}
+	if err := features.DefaultKeyValidator()(s); err != nil {
+		return fmt.Errorf("%w — leave it empty to skip enrichment, or fix it and try again", err)
+	}
+	return nil
+}
+
+// validWebhookLive is optionalWebhook plus the same live check
+// features.DefaultWebhookValidator does for `enable ai` and `enable slack` —
+// syntax first, so a plainly-wrong URL is not sent anywhere.
+func validWebhookLive(s string) error {
+	if err := optionalWebhook(s); err != nil {
+		return err
+	}
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	if err := features.DefaultWebhookValidator()(s); err != nil {
+		return fmt.Errorf("%w — leave it empty to skip, or fix it and try again", err)
+	}
+	return nil
 }
 
 // askConfirm is the last question, and the only one with three answers.
@@ -762,19 +993,22 @@ func buildPlan(root string, cluster platform.ClusterState, health platform.Healt
 			"apps/"+existing.Name+"/{app,application,values}.yaml is regenerated from it",
 			"the manifests are checked against this platform's Kyverno policies first")
 	} else {
-		url := ""
-		if a.Route {
-			url = base + a.Path
-			if a.Path == "/" {
-				url = base + "/"
-			}
+		// Built from the same function that will validate and write the spec,
+		// so the plan describes the exact application the rest of the run
+		// acts on — N services and every route, not just the first of each.
+		app := toSpec(a)
+		svcLine := "1 service · " + a.Image + ":" + a.Tag + " on port " + strconv.Itoa(a.Port)
+		if n := len(app.Services); n > 1 {
+			svcLine = fmt.Sprintf("%d services · %s", n, strings.Join(app.ServiceNames(), ", "))
 		}
 		appDetails = []string{
-			"1 service · " + a.Image + ":" + a.Tag + " on port " + strconv.Itoa(a.Port),
+			svcLine,
 			"namespace " + a.Name + " · owner " + orNone(a.Owner),
 		}
-		if url != "" {
-			appDetails = append(appDetails, "reachable at "+url+" via "+a.Name)
+		if routes := app.RouteList(); len(routes) == 1 {
+			appDetails = append(appDetails, "reachable at "+app.URL(base)+" via "+routes[0].Service)
+		} else if len(routes) > 1 {
+			appDetails = append(appDetails, fmt.Sprintf("%d routes, front door %s", len(routes), app.URL(base)))
 		}
 		appDetails = append(appDetails,
 			meshDetail(a.Mesh),
@@ -928,7 +1162,15 @@ func writeSpec(root string, a Answers) error {
 // The comments are the point. This is the file the user comes back to when they
 // want a second service or a different tag, and a bare four-line YAML document
 // teaches them nothing about what else it could say.
+//
+// It renders from toSpec(a) rather than from the answers field by field, so the
+// file on disk and the app the plan was validated against can never disagree
+// about how many services or routes there are — the same reason `finalise`
+// validates the same App this function goes on to write.
 func specYAML(a Answers) string {
+	app := toSpec(a)
+	routes := app.RouteList()
+
 	var b strings.Builder
 	b.WriteString("# " + a.Name + " — the INPUT to `endurance onboard --from`.\n")
 	b.WriteString("#\n")
@@ -944,7 +1186,11 @@ func specYAML(a Answers) string {
 	b.WriteString("name: " + a.Name + "\n")
 	b.WriteString("namespace: " + a.Name + "\n")
 	if a.Repo != "" {
-		b.WriteString("repository: " + a.Repo + "\n")
+		b.WriteString("\n# Where this application's own code lives. Recorded in the registry entry\n")
+		b.WriteString("# and never cloned — the platform builds no images and reads no application\n")
+		b.WriteString("# source. It is NOT the repo ArgoCD watches: that is the platform repo, and\n")
+		b.WriteString("# it is `--gitops-repo`, which defaults to this repo's origin remote.\n")
+		b.WriteString("sourceRepo: " + a.Repo + "\n")
 	}
 	if a.Owner != "" {
 		b.WriteString("owner: " + yamlScalar(a.Owner) + "\n")
@@ -955,7 +1201,12 @@ func specYAML(a Answers) string {
 	b.WriteString("# weighted versions. Every pod gains a sidecar container, so pods read 2/2.\n")
 	b.WriteString("mesh:\n")
 	b.WriteString("  enabled: " + strconv.FormatBool(a.Mesh) + "\n")
-	if a.Route {
+
+	switch len(routes) {
+	case 0:
+		// Nothing written, same as before this item: a disabled route keeps no
+		// fields at all, so a file that asked for none carries no fossil.
+	case 1:
 		b.WriteString("\n# The application's public address. The platform owns one Istio Gateway and\n")
 		b.WriteString("# deliberately knows nothing about what is behind any path on it — an\n")
 		b.WriteString("# application asks, here, and charts/app renders a VirtualService bound to it.\n")
@@ -963,17 +1214,48 @@ func specYAML(a Answers) string {
 		b.WriteString("# /argocd, /kiali, /grafana, /prometheus and /alertmanager are the platform's.\n")
 		b.WriteString("route:\n")
 		b.WriteString("  enabled: true\n")
-		b.WriteString("  path: " + a.Path + "\n")
-		b.WriteString("  service: " + a.Name + "\n")
+		b.WriteString("  path: " + routes[0].Path + "\n")
+		b.WriteString("  service: " + routes[0].Service + "\n")
+	default:
+		// `routes:` is a list because a route names one service, and a
+		// multi-service application publishes some services and keeps most of
+		// them internal. specs/superheros.yaml routes `/` to its frontend and
+		// `/api/catalog` to catalog, which is this shape with the answers typed
+		// instead of hand-written.
+		b.WriteString("\n# This application's public addresses — one entry per exposed service, most\n")
+		b.WriteString("# specific path first so a `/` rule can never shadow one beneath it. The\n")
+		b.WriteString("# platform owns one Istio Gateway and knows nothing behind any path on it.\n")
+		b.WriteString("routes:\n")
+		for _, r := range routes {
+			b.WriteString("  - path: " + r.Path + "\n")
+			b.WriteString("    service: " + r.Service + "\n")
+		}
 	}
-	b.WriteString("\n# One service. An application is a set of independently-deployable services;\n")
-	b.WriteString("# this is the N=1 case. Add another entry here and re-run onboard to grow it.\n")
+
+	if len(app.Services) == 1 {
+		b.WriteString("\n# One service. An application is a set of independently-deployable services;\n")
+		b.WriteString("# this is the N=1 case. Add another entry here and re-run onboard to grow it.\n")
+	} else {
+		fmt.Fprintf(&b,
+			"\n# %d services. An application is a set of independently-deployable\n"+
+				"# services — add another entry here and re-run onboard to grow it further.\n",
+			len(app.Services))
+	}
 	b.WriteString("services:\n")
-	b.WriteString("  - name: " + a.Name + "\n")
-	b.WriteString("    image: " + a.Image + "\n")
-	b.WriteString("    tag: " + a.Tag + "\n")
-	b.WriteString("    port: " + strconv.Itoa(a.Port) + "\n")
-	b.WriteString("    replicas: 1\n")
+	for _, s := range app.Services {
+		b.WriteString("  - name: " + s.Name + "\n")
+		b.WriteString("    image: " + s.Image + "\n")
+		b.WriteString("    tag: " + s.Tag + "\n")
+		b.WriteString("    port: " + strconv.Itoa(s.Port) + "\n")
+		b.WriteString("    replicas: 1\n")
+		if len(s.Env) > 0 {
+			b.WriteString("    env:\n")
+			for _, e := range s.Env {
+				b.WriteString("      - name: " + e.Name + "\n")
+				b.WriteString("        value: " + yamlScalar(e.Value) + "\n")
+			}
+		}
+	}
 	return b.String()
 }
 
@@ -988,223 +1270,75 @@ func meshAnswer(on bool) spec.Mesh {
 }
 
 // toSpec is the in-memory equivalent, for validating the answers before the
-// plan is printed.
+// plan is printed and before the spec file is written — both read this same
+// function, so the two can never disagree about what N services and which
+// routes the answers describe.
 func toSpec(a Answers) spec.App {
 	app := spec.App{
 		Name:       a.Name,
 		Namespace:  a.Name,
-		Repository: a.Repo,
+		SourceRepo: a.Repo,
 		Owner:      a.Owner,
 		Mesh:       meshAnswer(a.Mesh),
-		Services: []spec.Service{{
-			Name: a.Name, Image: a.Image, Tag: a.Tag, Port: a.Port, Replicas: 1,
-		}},
+		Services:   answerServices(a),
 	}
-	if a.Route {
-		app.Route = spec.Route{Enabled: true, Path: a.Path, Service: a.Name}
+	if routes := answerRoutes(a); len(routes) == 1 {
+		app.Route = routes[0]
+	} else if len(routes) > 1 {
+		app.Routes = routes
 	}
 	return app
 }
 
-// deploy hands the application to ArgoCD and waits for it.
+// answerServices is the application's first service plus every ExtraServices
+// entry, in the order they were asked — the N in "N services".
+func answerServices(a Answers) []spec.Service {
+	out := []spec.Service{{
+		Name: a.Name, Image: a.Image, Tag: a.Tag, Port: a.Port, Replicas: 1, Env: a.Env,
+	}}
+	for _, e := range a.ExtraServices {
+		out = append(out, spec.Service{
+			Name: e.Name, Image: e.Image, Tag: e.Tag, Port: e.Port, Replicas: 1, Env: e.Env,
+		})
+	}
+	return out
+}
+
+// answerRoutes is every route a human asked for, in the order they were asked
+// — the app's own (if Route) followed by each extra service that said yes.
+// toSpec collapses this to `route:` for one and `routes:` for more than one,
+// matching how the spec format itself distinguishes the two.
+func answerRoutes(a Answers) []spec.Route {
+	var out []spec.Route
+	if a.Route {
+		out = append(out, spec.Route{Enabled: true, Path: a.Path, Service: a.Name})
+	}
+	for _, e := range a.ExtraServices {
+		if e.Route {
+			out = append(out, spec.Route{Enabled: true, Path: e.Path, Service: e.Name})
+		}
+	}
+	return out
+}
+
+// deployApp hands the application to ArgoCD and waits for it.
 //
-// Two steps, one small progress chain of its own — sequential with the
-// bootstrap's, never nested inside it.
-//
-// The first step applies apps/<app>/application.yaml. That is the ArgoCD
-// Application: the registration that tells ArgoCD which repo to watch and where
-// to sync it. It is not a workload, and nothing in this file applies one — the
-// invariant that ArgoCD is the only deployer is exactly as intact as it was
-// before this command existed.
-// The bool result is whether ArgoCD actually reported the application synced
-// and healthy, so the caller can close the run with a claim or without one.
-func deploy(root string, a Answers, opts Options) (bool, error) {
-	kube := resolveKubectl(opts.Kubectl)
-	appFile := filepath.Join(gitops.AppDir(root, a.Name), "application.yaml")
-
-	p := render.NewProgress("Deploying "+a.Name,
-		"Registering "+a.Name+" with ArgoCD", "Waiting for ArgoCD")
-
-	step := p.Start("Registering " + a.Name + " with ArgoCD")
-	if kube == nil {
-		step.Skip("kubectl is not on PATH")
-		p.Finish()
-		render.Warn("nothing was applied — `kubectl apply -f " + relPath(root, appFile) + "` registers it")
-		return false, nil
+// Sequential with the bootstrap's progress chain, never nested inside it. The
+// work itself — apply the Application, poll ArgoCD — lives in internal/deploy
+// since Phase 14 (14.2): `endurance deploy <app>` and this guided run are one
+// function now, not one of them reimplementing it privately. Injectable so a
+// test can assert on what init passes it, the same rule that caught v0.10.1's
+// missing GitopsRepo.
+func deployApp(root string, a Answers, opts Options) (bool, error) {
+	run := opts.Deploy
+	if run == nil {
+		run = deploy.Run
 	}
-	if out, err := kube("apply", "-f", appFile); err != nil {
-		// kubectl puts the diagnosis on the lines *after* the headline — an
-		// invalid Application says "is invalid:" and then names each field. A
-		// first-line-only report throws away the only part worth reading.
-		for _, l := range outputLines(out) {
-			step.Detail(l)
-		}
-		err = step.Fail(fmt.Errorf("kubectl apply: %s", reason(out)))
-		p.Finish()
-		return false, err
-	}
-	step.Rename(a.Name + " registered with ArgoCD")
-	step.Done()
-
-	wait := p.Start("Waiting for ArgoCD")
-	if opts.NoWait {
-		wait.Skip("--no-wait")
-		p.Finish()
-		return false, nil
-	}
-	state := waitForSync(wait, root, a.Name, kube, opts)
-	switch {
-	case state.synced:
-		wait.Rename("ArgoCD synced " + a.Name)
-		wait.Done()
-	default:
-		// Not a failure. ArgoCD may still be working, or it may be waiting for a
-		// push, and either way the success screen below reports what is actually
-		// running rather than this step guessing.
-		wait.Warn(state.why)
-	}
-	p.Finish()
-	if !state.synced && state.needsPush {
-		render.Blank()
-		render.Warn("ArgoCD only ever sees pushed state, and this commit is not pushed")
-		render.Detail(state.pushDetail)
-		render.Detail("Endurance never pushes — that is yours to run:")
-		render.Detail("  git push")
-		render.Detail("then `endurance status " + a.Name + "` · ArgoCD picks it up on its own")
-	}
-	return state.synced, nil
-}
-
-// syncState is what the wait concluded.
-type syncState struct {
-	synced     bool
-	needsPush  bool
-	why        string
-	pushDetail string
-}
-
-// waitForSync polls ArgoCD until the Application is Synced and Healthy.
-//
-// It reports what it is waiting for, and re-reports only when the answer
-// changes: a step that prints the same line every five seconds is a step nobody
-// reads. The push check happens once, up front, because "your commit is not on
-// the remote" is the difference between waiting usefully and waiting forever.
-func waitForSync(step *render.LiveStep, root, app string,
-	kube func(args ...string) (string, error), opts Options) syncState {
-
-	st := syncState{}
-	// The push check is deliberately not made up front. An application ArgoCD
-	// has already synced needs no push, and announcing one anyway would be a
-	// warning immediately contradicted by the ✓ underneath it — so it is asked
-	// the first time a poll comes back unsynced, and asked once.
-	askedAboutPush := false
-	checkPush := func() {
-		if askedAboutPush {
-			return
-		}
-		askedAboutPush = true
-		if ahead, detail := pushState(root); ahead {
-			st.needsPush, st.pushDetail = true, detail
-			step.Detail(detail)
-			step.Detail("Endurance never pushes · run `git push` and this picks it up")
-		}
-	}
-
-	// The loop is bounded twice over, by a deadline and by a count of attempts.
-	// Belt and braces on purpose: the wall clock is injectable so a test can pin
-	// it, and a pinned clock never reaches a deadline — so a wait with only the
-	// first bound is a wait that can run forever on a frozen clock. Found by
-	// writing the test, which is the cheap way to find it.
-	deadline := now(opts).Add(opts.Timeout)
-	attempts := int(opts.Timeout / waitPoll)
-	if attempts < 1 {
-		attempts = 1
-	}
-	last := ""
-	for attempt := 1; ; attempt++ {
-		sync, health, err := argoStatus(kube, app)
-		switch {
-		case err != nil:
-			describe(step, &last, "ArgoCD has not reported on "+app+" yet")
-			checkPush()
-		case sync == "Synced" && health == "Healthy":
-			st.synced = true
-			return st
-		default:
-			describe(step, &last, "sync "+orUnknown(sync)+" · health "+orUnknown(health))
-			checkPush()
-		}
-		if attempt >= attempts || !now(opts).Before(deadline) {
-			st.why = "still " + orUnknown(last) + " after " + opts.Timeout.String()
-			if st.needsPush {
-				st.why = "waiting for a push"
-			}
-			return st
-		}
-		pause(opts, waitPoll)
-	}
-}
-
-// pause is the wait between polls. Injectable so a test that wants to watch
-// three state transitions does not take fifteen seconds to do it.
-func pause(opts Options, d time.Duration) {
-	if opts.sleep != nil {
-		opts.sleep(d)
-		return
-	}
-	time.Sleep(d)
-}
-
-func describe(step *render.LiveStep, last *string, msg string) {
-	if msg == *last {
-		return
-	}
-	*last = msg
-	step.Detail(msg)
-}
-
-// argoApp is the slice of ArgoCD's Application status this command reads.
-type argoApp struct {
-	Status struct {
-		Sync struct {
-			Status string `json:"status"`
-		} `json:"sync"`
-		Health struct {
-			Status string `json:"status"`
-		} `json:"health"`
-	} `json:"status"`
-}
-
-func argoStatus(kube func(args ...string) (string, error), app string) (sync, health string, err error) {
-	out, err := kube("-n", "argocd", "get", "application", app, "-o", "json")
-	if err != nil {
-		return "", "", fmt.Errorf("%s", firstLine(out))
-	}
-	var a argoApp
-	if err := json.Unmarshal([]byte(out), &a); err != nil {
-		return "", "", err
-	}
-	return a.Status.Sync.Status, a.Status.Health.Status, nil
-}
-
-// pushState reports whether this repo has commits ArgoCD cannot see.
-//
-// Three answers, and they are different: there is no upstream at all (nothing
-// to push to — a fresh clone with no remote, or a branch never pushed), there
-// are commits ahead of it, or everything is published. Only the first two make
-// the wait futile, and each needs a different sentence.
-func pushState(root string) (needsPush bool, detail string) {
-	branch := strings.TrimSpace(git(root, "rev-parse", "--abbrev-ref", "HEAD"))
-	head := strings.TrimSpace(git(root, "rev-parse", "--short", "HEAD"))
-	upstream := strings.TrimSpace(git(root, "rev-parse", "--abbrev-ref", "@{upstream}"))
-	if upstream == "" {
-		return true, "branch " + orUnknown(branch) + " has no upstream — nothing has been pushed anywhere"
-	}
-	ahead := strings.TrimSpace(git(root, "rev-list", "--count", "@{upstream}..HEAD"))
-	if ahead == "" || ahead == "0" {
-		return false, ""
-	}
-	return true, "commit " + head + " is " + ahead + " ahead of " + upstream
+	return run(deploy.Options{
+		Root: root, App: a.Name,
+		NoWait: opts.NoWait, Timeout: opts.Timeout,
+		Kubectl: opts.Kubectl, Now: opts.Now, Sleep: opts.sleep,
+	})
 }
 
 func git(root string, args ...string) string {
@@ -1247,19 +1381,6 @@ func freePath(root, name string) string {
 
 // --- small helpers ---
 
-func resolveKubectl(k func(args ...string) (string, error)) func(args ...string) (string, error) {
-	if k != nil {
-		return k
-	}
-	if _, err := exec.LookPath("kubectl"); err != nil {
-		return nil
-	}
-	return func(args ...string) (string, error) {
-		out, err := exec.Command("kubectl", args...).CombinedOutput()
-		return string(out), err
-	}
-}
-
 func now(opts Options) time.Time {
 	if opts.Now != nil {
 		return opts.Now()
@@ -1290,20 +1411,6 @@ func orNone(s string) string {
 	return s
 }
 
-func orUnknown(s string) string {
-	if s == "" {
-		return "unknown"
-	}
-	return s
-}
-
-func relPath(root, path string) string {
-	if rel, err := filepath.Rel(root, path); err == nil {
-		return filepath.ToSlash(rel)
-	}
-	return path
-}
-
 // gitopsRepo is the URL ArgoCD will be told to watch. The flag wins; otherwise
 // this repo's origin remote, which is what makes a fork deploy from the fork;
 // otherwise the upstream default. It is never empty — an empty repoURL renders
@@ -1316,54 +1423,6 @@ func gitopsRepo(root string, opts Options) string {
 		return url
 	}
 	return gitops.DefaultRepo
-}
-
-// maxReasons bounds how much of a command's complaint is folded into a
-// one-line error. Every line is still shown as a detail above it.
-const maxReasons = 4
-
-// outputLines returns the non-empty, trimmed lines of a command's output.
-func outputLines(s string) []string {
-	var out []string
-	for _, l := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
-// reason folds a multi-line complaint into one sentence: the headline, then the
-// specifics it introduced. "The Application "x" is invalid:" on its own names
-// no fault anybody can act on; with "spec.sources[0].repoURL: Required value"
-// after it, it does.
-func reason(out string) string {
-	lines := outputLines(out)
-	if len(lines) == 0 {
-		return "no output"
-	}
-	head := lines[0]
-	rest := lines[1:]
-	if len(rest) == 0 {
-		return head
-	}
-	head = strings.TrimSuffix(head, ":")
-	more := ""
-	if len(rest) > maxReasons {
-		rest, more = rest[:maxReasons], ", …"
-	}
-	for i, r := range rest {
-		rest[i] = strings.TrimPrefix(r, "* ")
-	}
-	return head + ": " + strings.Join(rest, "; ") + more
-}
-
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
-		return strings.TrimSpace(s[:i])
-	}
-	return s
 }
 
 // yamlScalar quotes a value that YAML would otherwise read as something else.

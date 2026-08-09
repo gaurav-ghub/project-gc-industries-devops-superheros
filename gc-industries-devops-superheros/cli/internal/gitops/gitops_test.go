@@ -14,7 +14,7 @@ func sampleApp() spec.App {
 	return spec.App{
 		Name:       "superheros",
 		Namespace:  "superheros",
-		Repository: "https://github.com/gc-ghub/project-gc-industries-devops-superheros.git",
+		SourceRepo: "https://github.com/gc-ghub/project-gc-industries-devops-superheros.git",
 		Owner:      "gc-industries",
 		Services: []spec.Service{
 			{Name: "frontend", Image: "dockergc00/superheros-frontend", Tag: "latest", Port: 8080, Replicas: 2},

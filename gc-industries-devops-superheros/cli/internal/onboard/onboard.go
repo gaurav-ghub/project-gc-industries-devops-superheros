@@ -1,6 +1,7 @@
-// Package onboard implements `endurance onboard` — the interactive form that
-// turns a developer's answers into an application spec and the GitOps files
-// ArgoCD needs. It never deploys; it writes files (and optionally commits).
+// Package onboard implements `endurance onboard` — the non-interactive door
+// that turns an application spec into the GitOps files ArgoCD needs. It
+// writes files (and optionally commits and deploys); `endurance init` is
+// where the questions are asked, since Phase 14 (14.1).
 package onboard
 
 import (
@@ -8,12 +9,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/charmbracelet/huh"
+	"github.com/gc-ghub/endurance/internal/deploy"
 	"github.com/gc-ghub/endurance/internal/gitops"
+	"github.com/gc-ghub/endurance/internal/image"
 	"github.com/gc-ghub/endurance/internal/notify"
 	"github.com/gc-ghub/endurance/internal/policy"
-	"github.com/gc-ghub/endurance/internal/prompt"
 	"github.com/gc-ghub/endurance/internal/render"
 	"github.com/gc-ghub/endurance/internal/spec"
 	"github.com/gc-ghub/endurance/internal/version"
@@ -31,6 +33,36 @@ type Options struct {
 	SkipPolicy bool   // break glass: report policy violations but do not block
 	NoNotify   bool   // do not send the CLI notification
 
+	// SkipImageCheck is break glass for the image preflight, the same shape as
+	// SkipPolicy: report everything, block nothing.
+	SkipImageCheck bool
+
+	// Inspect is the registry lookup the image preflight uses. Nil means the
+	// real one when docker is on PATH — see image.DefaultInspector. It is an
+	// option rather than a package-level default so that **no test ever makes
+	// the call**: `docker manifest inspect` on a test runner would pass here,
+	// hang in CI and fail on a machine with no network, which is the class of
+	// fault that shipped a broken v0.11.0.
+	Inspect image.Inspector
+
+	// Deploy asks onboard to apply the generated Application, using the same
+	// verb `endurance deploy <app>` calls on its own (14.2). Off by default,
+	// the same posture as Commit: `onboard` is also the automation entry point
+	// — CI, `--from`, the byte-identical regeneration proof — and those callers
+	// must not have a kubeconfig they did not ask about touched. A person who
+	// wants the deploy runs `endurance onboard --deploy` or, more simply,
+	// `endurance init`. Either way, what onboard offers instead when this is
+	// off is `endurance deploy <app>` — never a raw kubectl line.
+	Deploy  bool
+	NoWait  bool // deploy: do not wait for ArgoCD; end on whatever is running now
+	Timeout time.Duration
+	Kubectl func(args ...string) (string, error)
+
+	// DeployFunc is the verb itself. Nil means deploy.Run. Injectable so a test
+	// can assert on what onboard passes it without touching a real cluster —
+	// the same rule that caught v0.10.1's missing GitopsRepo.
+	DeployFunc func(deploy.Options) (bool, error)
+
 	// NoMesh sets the default the mesh question opens on. It only reaches the
 	// interactive path: a spec file passed with --from has already answered the
 	// question, and a flag must not silently overrule a file.
@@ -41,80 +73,38 @@ type Options struct {
 	NoBanner bool
 }
 
-// Run drives onboarding and writes the GitOps files. If opts.From is set it
-// skips the interactive form and loads the spec from a YAML file (used for
-// migration and automation); otherwise it prompts via huh.
+// Run drives onboarding and writes the GitOps files from a spec file.
+//
+// # It is the non-interactive door, and only that, since Phase 14 (14.1)
+//
+// This command used to also ask its own questions — application name,
+// namespace, source repo, owner, mesh, then a loop of per-service prompts —
+// which meant a developer with a multi-service application had two different
+// interactive experiences to choose between, split by a rule ("one service →
+// `init`, more than one → `onboard`") that was nowhere in the help text and
+// was not even the real distinction. The distinction was accidental: `init`
+// bootstrapped and deployed, `onboard` did neither, and both happened to write
+// the same files.
+//
+// `endurance init` is the only guided form now, and its form asks for N
+// services, routes and per-service env — everything this command's old form
+// asked for and the two things it never did. `init` writes what it asks as
+// `specs/<app>.yaml` and calls this function with `--from` pointed at that
+// file, which is the same thing CI, `--from` and the byte-identical
+// regeneration proof already did. Nobody hand-writes a spec file: it is
+// always either `init`'s output or a previous onboard's input, edited.
 func Run(opts Options) error {
 	if !opts.NoBanner {
 		render.Banner(version.Current)
 	}
 	render.Section("Onboard an application")
 
-	if opts.From != "" {
-		return runFromFile(opts)
+	if opts.From == "" {
+		return fmt.Errorf("onboard needs --from <specs/app.yaml> — " +
+			"`endurance init` asks the questions and writes one; " +
+			"onboard is the door for that same file (CI, automation, re-registering an app already onboarded)")
 	}
-
-	app := spec.App{}
-	// Defaulted true and bound to the form, so the answer written into the spec
-	// is the one the user was shown rather than one nobody was offered. Until
-	// Phase 13 this form had no mesh question at all, which is why every
-	// application onboarded through it ran outside a mesh the platform is built
-	// out of.
-	mesh := !opts.NoMesh
-	appForm := prompt.Form(
-		huh.NewGroup(
-			huh.NewInput().Title("Application name").
-				Description("lowercase, DNS-safe (e.g. superheros)").
-				Value(&app.Name).
-				Validate(dns("application name")),
-			huh.NewInput().Title("Namespace").
-				Description("Kubernetes namespace to deploy into").
-				Value(&app.Namespace).
-				Validate(dns("namespace")),
-			huh.NewInput().Title("Repository URL").
-				Description("the developer's application source repo").
-				Value(&app.Repository),
-			huh.NewInput().Title("Owner / team").
-				Value(&app.Owner),
-			huh.NewConfirm().Title("Put it in the service mesh?").
-				Description("Istio sidecars · needed for canary and for Kiali to see it · adds one container per pod").
-				Affirmative("Yes").Negative("No").
-				Value(&mesh),
-		),
-	)
-	if err := appForm.Run(); err != nil {
-		return err
-	}
-	if app.Namespace == "" {
-		app.Namespace = app.Name
-	}
-	if mesh {
-		app.Mesh = spec.MeshOn()
-	} else {
-		app.Mesh = spec.MeshOff()
-	}
-
-	// Collect one or more services.
-	for {
-		svc, err := serviceForm(len(app.Services) + 1)
-		if err != nil {
-			return err
-		}
-		app.Services = append(app.Services, svc)
-
-		more := false
-		if err := prompt.Run(huh.NewConfirm().
-			Title("Add another service?").
-			Description(fmt.Sprintf("%d service(s) so far", len(app.Services))).
-			Value(&more)); err != nil {
-			return err
-		}
-		if !more {
-			break
-		}
-	}
-
-	return finish(opts, app)
+	return runFromFile(opts)
 }
 
 // runFromFile loads an app spec from YAML and generates without prompting.
@@ -131,6 +121,12 @@ func runFromFile(opts Options) error {
 		app.Namespace = app.Name
 	}
 	render.Info("loaded spec from " + opts.From)
+	// A renamed field that is silently accepted is a rename nobody hears about,
+	// and the whole argument for renaming this one is that its old name misled
+	// somebody for four edits. Said once, here, where the file was read.
+	for _, d := range app.Deprecated() {
+		render.Warn(d)
+	}
 	return finish(opts, app)
 }
 
@@ -163,6 +159,23 @@ func finish(opts Options, app spec.App) error {
 	for _, w := range gitops.WeightDrift(opts.Root, gated) {
 		render.Warn(w)
 	}
+
+	// The image gate runs *above* the policy gate, and the order is the lesson.
+	//
+	// In the first outside run the Kyverno gate printed `✓ all policies
+	// satisfied` about a container that could not start, and it was right: the
+	// manifest declares non-root and dropped capabilities, which is what the
+	// policy asks. Whether the image can live inside that posture is a fact
+	// about the image, which no static check of the YAML can reach. Printing the
+	// tick first and the refusal after would reproduce exactly the pair of facts
+	// that made that run hard to read.
+	if err := image.Gate(gated, image.Options{
+		Inspect: opts.Inspect,
+		Skip:    opts.SkipImageCheck,
+	}); err != nil {
+		return err
+	}
+
 	if err := policy.Gate(policy.Options{
 		Root: opts.Root, Dir: opts.PolicyDir, Skip: opts.SkipPolicy,
 	}, gated); err != nil {
@@ -186,13 +199,47 @@ func finish(opts Options, app spec.App) error {
 	}
 
 	if opts.Commit {
-		if err := gitops.Commit(opts.Root, written, "endurance: onboard "+app.Name); err != nil {
+		// The spec that produced this run rides in the same commit as the
+		// files generated from it (B2, Phase 13's Part B). `init` used to
+		// print `✓ wrote specs/<app>.yaml` and then commit only the files
+		// under apps/, leaving the spec untracked — harmless while ArgoCD
+		// reads apps/ and never specs/, and it stops being harmless the
+		// moment 14.1 makes the spec the only way one is ever written. An
+		// output the tool does not commit is an output the next person does
+		// not have.
+		toCommit := written
+		if opts.From != "" {
+			if _, err := os.Stat(opts.From); err == nil {
+				toCommit = append(append([]string{}, written...), opts.From)
+			}
+		}
+		if err := gitops.Commit(opts.Root, toCommit, "endurance: onboard "+app.Name); err != nil {
 			render.Warn("commit skipped: " + err.Error())
 		} else {
 			render.Success("staged and committed, not pushed — " + gitops.HeadSubject(opts.Root))
 		}
 	} else {
 		render.Info("not committed — review the files, then commit when ready")
+	}
+
+	// Deploying is the verb 14.2 added, and this is the second of the two doors
+	// that use it — init calls it unconditionally, onboard only when asked,
+	// because onboard is also the automation entry point and must not reach
+	// for a kubeconfig a CI run never mentioned.
+	deployed := false
+	if opts.Deploy {
+		run := opts.DeployFunc
+		if run == nil {
+			run = deploy.Run
+		}
+		synced, err := run(deploy.Options{
+			Root: opts.Root, App: app.Name,
+			NoWait: opts.NoWait, Timeout: opts.Timeout, Kubectl: opts.Kubectl,
+		})
+		if err != nil {
+			return err
+		}
+		deployed = synced
 	}
 
 	if !opts.NoNotify {
@@ -214,10 +261,25 @@ func finish(opts Options, app spec.App) error {
 		{"Services", render.Value(strconv.Itoa(len(app.Services))) + "  (" + svcNames + ")"},
 		{"Owner", app.Owner},
 	}
-	next := []string{
-		"git push the platform repo so ArgoCD can see it",
-		"endurance status " + app.Name + "   to watch it come up",
+	next := []string{"git push the platform repo so ArgoCD can see it"}
+	switch {
+	case deployed:
+		// Deploy ran and ArgoCD already reports Synced/Healthy — the run has
+		// earned the claim, so there is nothing left to tell them to type.
+	case opts.Deploy:
+		// Deploy ran and did not converge yet (still syncing, or waiting for
+		// the push named above); `status` is the thing to watch, not a second
+		// deploy.
+	default:
+		// Deploy did not run at all. Until 14.2 this line was a raw kubectl
+		// command — a tool that knows the exact command and hands it to a
+		// person has not finished — and it only appeared when the mesh was on,
+		// which was its own fault: the Application has to be applied whether
+		// or not there is a sidecar, or nothing ArgoCD watches ever hears this
+		// application exists.
+		next = append(next, "endurance deploy "+app.Name+"   to register it with ArgoCD")
 	}
+	next = append(next, "endurance status "+app.Name+"   to watch it come up")
 	if canaries := app.CanaryServices(); len(canaries) > 0 {
 		rows = append(rows, [2]string{"Canary", render.Value(strings.Join(canaries, ", "))})
 		next = append(next, "endurance canary status "+app.Name+"   to see the traffic split")
@@ -234,90 +296,7 @@ func finish(opts Options, app spec.App) error {
 		rows = append(rows, [2]string{"Mesh", "none — pods run without a sidecar, and Kiali will not see this application"})
 	} else {
 		rows = append(rows, [2]string{"Mesh", "istio — namespace gets istio-injection=enabled"})
-		// Applying the Application by hand is already the documented step, but
-		// it is easy to skip on a re-onboard, and the namespace label is the one
-		// change ArgoCD cannot make for itself until it has been told to.
-		//
-		// Relative to the repo, not absolute: this is a command to type from the
-		// directory the user is already standing in, and an absolute Windows
-		// path is 90 columns of prefix they do not need. It was also what forced
-		// this box past the width of a terminal.
-		next = append(next, "kubectl apply -f apps/"+app.Name+
-			"/application.yaml   (the namespace label lives here)")
 	}
 	render.Dashboard("Application onboarded", rows, next)
-	return nil
-}
-
-func serviceForm(n int) (spec.Service, error) {
-	var s spec.Service
-	portStr, tagStr, replStr := "", "latest", "1"
-	form := prompt.Form(
-		huh.NewGroup(
-			huh.NewNote().Title(fmt.Sprintf("Service #%d", n)),
-			huh.NewInput().Title("Service name").
-				Value(&s.Name).Validate(dns("service name")),
-			huh.NewInput().Title("Image").
-				Description("repository without tag, e.g. dockergc00/superheros-frontend").
-				Value(&s.Image).Validate(nonEmpty("image")),
-			huh.NewInput().Title("Tag").Value(&tagStr),
-			huh.NewInput().Title("Container port").
-				Value(&portStr).Validate(isPort),
-			huh.NewInput().Title("Replicas").Value(&replStr).Validate(isPositiveInt),
-		),
-	)
-	if err := form.Run(); err != nil {
-		return s, err
-	}
-	s.Tag = tagStr
-	s.Port, _ = strconv.Atoi(portStr)
-	s.Replicas, _ = strconv.Atoi(replStr)
-	return s, nil
-}
-
-// --- validators ---
-
-func dns(field string) func(string) error {
-	return func(v string) error {
-		s := spec.App{Name: "x", Namespace: "x", Services: []spec.Service{{Name: v, Image: "i", Port: 1, Replicas: 1}}}
-		if field == "service name" {
-			if err := s.Validate(); err != nil {
-				return fmt.Errorf("%s must be lowercase DNS-safe", field)
-			}
-			return nil
-		}
-		if v == "" {
-			return nil // namespace may default from name
-		}
-		t := spec.App{Name: v, Namespace: v, Services: []spec.Service{{Name: "s", Image: "i", Port: 1, Replicas: 1}}}
-		if err := t.Validate(); err != nil {
-			return fmt.Errorf("%s must be lowercase DNS-safe", field)
-		}
-		return nil
-	}
-}
-
-func nonEmpty(field string) func(string) error {
-	return func(v string) error {
-		if v == "" {
-			return fmt.Errorf("%s is required", field)
-		}
-		return nil
-	}
-}
-
-func isPort(v string) error {
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 || n > 65535 {
-		return fmt.Errorf("port must be 1-65535")
-	}
-	return nil
-}
-
-func isPositiveInt(v string) error {
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 {
-		return fmt.Errorf("must be a positive integer")
-	}
 	return nil
 }

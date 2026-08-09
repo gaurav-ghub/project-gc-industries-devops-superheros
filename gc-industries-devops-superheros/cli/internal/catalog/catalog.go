@@ -45,8 +45,8 @@ func List(root string) error {
 	render.Section("Catalog")
 	if len(apps) == 0 {
 		render.Info("no applications registered yet")
-		render.Detail("`endurance init` walks you through the first one")
-		render.Detail("`endurance onboard` is the full form, for a multi-service application")
+		render.Detail("`endurance init` walks you through the first one — services, routes and env included")
+		render.Detail("`endurance onboard --from <spec>` re-registers one from a file, without asking again")
 		return nil
 	}
 	for _, l := range Lines(apps) {

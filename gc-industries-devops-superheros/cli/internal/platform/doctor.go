@@ -101,6 +101,16 @@ func Doctor(opts DoctorOptions) error {
 	checks := Preflight(realProbe(), root)
 	render.Checks(checks)
 	render.Blank()
+	// Which endurance is running is a preflight question and not a tool
+	// question, so it is reported here rather than added to the list above:
+	// Preflight is also bootstrap's gate and must stay answerable from a probe
+	// alone. It says nothing at all unless there is something to say, and the
+	// something is B1 — a binary on $PATH older than the one this repo built,
+	// printing the same version, generating different files. `endurance init`
+	// runs this preflight as its first phase, so a guided first run gets it too.
+	if root != "" {
+		reportBinary(InspectBinary(root))
+	}
 	return preflightVerdict(checks)
 }
 

@@ -38,6 +38,8 @@ verify_access_installation() {
 
     verify_kiali_service
 
+    verify_istio_podmonitor
+
     # The host half. cluster.sh owns this check; the access module is the one
     # that has a reason to care about the answer.
     verify_cluster_port_mappings
@@ -97,6 +99,27 @@ verify_kiali_service() {
     else
 
         log_error "Kiali service was not created."
+
+        exit 1
+
+    fi
+
+}
+
+
+# verify_istio_podmonitor is 14.10's guard: existing without this would be
+# exactly B5's fault again — every other component in this module correct and
+# reachable while istio_requests_total never exists because nothing scrapes
+# the sidecars.
+verify_istio_podmonitor() {
+
+    if kubectl get podmonitor "${ISTIO_PODMONITOR_NAME}" -n "${ACCESS_NAMESPACE}" >/dev/null 2>&1; then
+
+        log_success "PodMonitor ${ISTIO_PODMONITOR_NAME} exists."
+
+    else
+
+        log_error "PodMonitor ${ISTIO_PODMONITOR_NAME} was not created — Kiali's traffic graph has nothing to read."
 
         exit 1
 

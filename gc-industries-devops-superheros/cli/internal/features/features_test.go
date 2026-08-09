@@ -350,6 +350,195 @@ func TestEnableRefusesSomethingThatIsNotASlackWebhook(t *testing.T) {
 	}
 }
 
+// 14.8 — validate a credential where it is given (B3). `enable ai` used to
+// accept an OpenAI key with no validating call at all; the wrong key surfaced
+// minutes later, in a Slack message about an unrelated pod. Nothing here ever
+// calls the real network — see ValidateKey/ValidateWebhookLive's own doc: nil
+// skips the check, and every test below injects a fake.
+
+func rejects(msg string) func(string) error {
+	return func(string) error { return errors.New(msg) }
+}
+
+func accepts(string) error { return nil }
+
+// TestABadOpenAIKeyIsRefusedAtThePrompt — the whole point. The 401 that used
+// to surface inside an enriched Slack message about an unrelated pod now
+// surfaces here, before anything is written.
+func TestABadOpenAIKeyIsRefusedAtThePrompt(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	err := Enable("ai", Options{
+		Root: root, Ask: answers(fakeKey, ""), Kubectl: noKubectl,
+		Now:         func() string { return "2026-08-08" },
+		ValidateKey: rejects("the OpenAI API rejected this key (HTTP 401) — check it and try again"),
+	})
+	if err == nil {
+		t.Fatal("a key the validator refused was accepted")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("the refusal does not carry the reason: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(AISecretFile))); statErr == nil {
+		t.Error("a key the validator refused was written to disk anyway")
+	}
+}
+
+// TestAGoodOpenAIKeyIsWritten — the validator accepting is not itself news;
+// what matters is that the write still happens afterward.
+func TestAGoodOpenAIKeyIsWritten(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	err := Enable("ai", Options{
+		Root: root, Ask: answers(fakeKey, ""), Kubectl: noKubectl,
+		Now:         func() string { return "2026-08-08" },
+		ValidateKey: accepts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(AISecretFile))); statErr != nil {
+		t.Error("an accepted key was not written")
+	}
+}
+
+// TestNoValidatorSkipsTheCheck — nil is the default in every test and on any
+// machine with no network; writing the file must still work.
+func TestNoValidatorSkipsTheCheck(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	err := Enable("ai", Options{
+		Root: root, Ask: answers(fakeKey, ""), Kubectl: noKubectl,
+		Now: func() string { return "2026-08-08" },
+	})
+	if err != nil {
+		t.Fatalf("no validator at all still failed the run: %v", err)
+	}
+}
+
+// TestABadSlackWebhookIsRefusedAtThePromptForAI — the AI flow's own optional
+// Slack sink is the same kind of credential and gets the same check, only
+// when a hook was actually given.
+func TestABadSlackWebhookIsRefusedAtThePromptForAI(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	err := Enable("ai", Options{
+		Root: root, Ask: answers(fakeKey, fakeHook), Kubectl: noKubectl,
+		Now:                 func() string { return "2026-08-08" },
+		ValidateKey:         accepts,
+		ValidateWebhookLive: rejects("the webhook rejected this request (HTTP 404) — check the URL and try again"),
+	})
+	if err == nil {
+		t.Fatal("a webhook the validator refused was accepted")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(AISecretFile))); statErr == nil {
+		t.Error("a refused webhook still let the Secret be written")
+	}
+}
+
+// An empty, declined webhook is not sent for validation at all — there is
+// nothing to check, and asking would be a request about nothing.
+func TestAnEmptySlackHookIsNeverValidated(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	called := false
+	err := Enable("ai", Options{
+		Root: root, Ask: answers(fakeKey, ""), Kubectl: noKubectl,
+		Now:                 func() string { return "2026-08-08" },
+		ValidateKey:         accepts,
+		ValidateWebhookLive: func(string) error { called = true; return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Error("an empty, declined webhook was sent for validation")
+	}
+}
+
+// TestABadSlackWebhookIsRefusedAtThePromptForSlack — `enable slack`'s own
+// webhook gets the identical check.
+func TestABadSlackWebhookIsRefusedAtThePromptForSlack(t *testing.T) {
+	root := sandbox(t)
+	capture(t)
+
+	err := Enable("slack", Options{
+		Root: root, Ask: answers(fakeHook), Kubectl: noKubectl,
+		Now:                 func() string { return "2026-08-08" },
+		ValidateWebhookLive: rejects("the webhook rejected this request (HTTP 404) — check the URL and try again"),
+	})
+	if err == nil {
+		t.Fatal("a webhook the validator refused was accepted")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(SlackFile))); statErr == nil {
+		t.Error("a refused webhook was written to disk anyway")
+	}
+}
+
+// TestEnableAIRunsTheRolloutRestartRatherThanPrintingIt — the second half of
+// 14.8 (B3): once the Secret changes, the enricher does not read it until the
+// pod restarts, and this command used to print the command instead of
+// running it.
+func TestEnableAIRunsTheRolloutRestartRatherThanPrintingIt(t *testing.T) {
+	root := sandbox(t)
+	buf := capture(t)
+
+	var calls [][]string
+	kube := func(args ...string) (string, error) {
+		calls = append(calls, args)
+		return "", nil
+	}
+	err := Enable("ai", Options{
+		Root: root, Ask: answers(fakeKey, ""), Kubectl: kube,
+		Now: func() string { return "2026-08-08" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range calls {
+		if len(c) >= 3 && c[0] == "-n" && c[2] == "rollout" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("enable ai did not run a rollout restart, only: %v", calls)
+	}
+	if strings.Contains(buf.String(), "rollout restart") && !strings.Contains(buf.String(), "restarted") {
+		t.Errorf("the command was only printed, not run:\n%s", buf.String())
+	}
+}
+
+// A restart that fails to run is reported, and the fallback command is named
+// — the same "try, then tell them" shape as every other break-glass path in
+// this tool.
+func TestARestartThatFailsIsReportedWithTheFallback(t *testing.T) {
+	root := sandbox(t)
+	buf := capture(t)
+
+	kube := func(args ...string) (string, error) {
+		if len(args) >= 3 && args[2] == "rollout" {
+			return "error: deployments.apps \"superhero-ai-alertmanager\" not found", errors.New("exit 1")
+		}
+		return "", nil
+	}
+	err := Enable("ai", Options{
+		Root: root, Ask: answers(fakeKey, ""), Kubectl: kube,
+		Now: func() string { return "2026-08-08" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "rollout restart "+AIDeployment) {
+		t.Errorf("a failed restart does not name the fallback command:\n%s", buf.String())
+	}
+}
+
 // TestDisableRemovesTheFileAndTheClusterSecret — both halves, each reported as
 // what actually happened rather than as one claim covering two actions.
 func TestDisableRemovesTheFileAndTheClusterSecret(t *testing.T) {

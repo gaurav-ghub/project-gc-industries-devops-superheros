@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // dns1123 matches a Kubernetes-safe name (lowercase alphanumerics and '-').
@@ -437,15 +439,101 @@ type Route struct {
 
 // App is a registered application: a namespace + owner + a set of services.
 type App struct {
-	Name       string    `yaml:"name"`
-	Namespace  string    `yaml:"namespace"`
-	Repository string    `yaml:"repository"`
-	Owner      string    `yaml:"owner"`
-	Mesh       Mesh      `yaml:"mesh,omitempty"`
-	Route      Route     `yaml:"route,omitempty"`
-	Routes     []Route   `yaml:"routes,omitempty"`
-	Notify     Notify    `yaml:"notify,omitempty"`
-	Services   []Service `yaml:"services"`
+	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace"`
+
+	// SourceRepo is where the code that produced this application's images
+	// lives. It is recorded in the registry entry and **nothing is ever cloned
+	// from it** — the platform builds no images and reads no application source.
+	//
+	// # Why it was renamed in Phase 14
+	//
+	// It was called `repository:` until v0.12.0, one line away from
+	// `--gitops-repo`, and both take a GitHub URL. --gitops-repo is the repo
+	// ArgoCD watches — the platform repo, this one — and getting the two the
+	// wrong way round produces an Application that syncs the wrong tree or an
+	// registry entry that points at the platform. In the first outside run the
+	// tester edited specs/portfolio.yaml four times trying both and settled on
+	// the wrong one, which is the field's fault and not the tester's: two values
+	// of the same shape, adjacent, distinguished only by a name that describes
+	// neither.
+	//
+	// So the name says whose repo it is. `repository:` still parses — see
+	// UnmarshalYAML — because specs are files people have already written.
+	SourceRepo string `yaml:"sourceRepo,omitempty"`
+
+	Owner    string    `yaml:"owner"`
+	Mesh     Mesh      `yaml:"mesh,omitempty"`
+	Route    Route     `yaml:"route,omitempty"`
+	Routes   []Route   `yaml:"routes,omitempty"`
+	Notify   Notify    `yaml:"notify,omitempty"`
+	Services []Service `yaml:"services"`
+
+	// legacySourceRepo records that this spec was read from a file using the
+	// pre-v0.12.0 key, so the CLI can say so once. Unexported and untagged: it
+	// is a fact about the file that was read rather than a field of the format,
+	// and it must never be written back out.
+	legacySourceRepo bool
+}
+
+// LegacySourceRepoKey is the pre-v0.12.0 spelling of sourceRepo. Exported so
+// the CLI can name it in the one-line deprecation notice without spelling it
+// twice.
+const LegacySourceRepoKey = "repository"
+
+// UnmarshalYAML reads a spec, accepting the old `repository:` spelling.
+//
+// The alias is deliberate and it is one-way: a file may say `repository:` and is
+// read correctly, and everything Endurance *writes* says `sourceRepo:`. A format
+// that accepts two spellings and emits whichever it was given has two answers to
+// what a field is called, which is the fault this rename exists to remove — so
+// the old name is an input the tool understands, never an output it produces.
+//
+// A file that says both is refused rather than resolved. Picking one silently
+// would mean an application whose source repo depends on which line the author
+// edited last.
+func (a *App) UnmarshalYAML(value *yaml.Node) error {
+	// An alias type with no methods, so decoding it does not recurse into this
+	// function. The legacy key is decoded separately rather than kept as a
+	// struct field, which is what keeps it out of everything the marshaller
+	// writes.
+	type plain App
+	var p plain
+	if err := value.Decode(&p); err != nil {
+		return err
+	}
+	var legacy struct {
+		Repository string `yaml:"repository"`
+	}
+	if err := value.Decode(&legacy); err != nil {
+		return err
+	}
+	*a = App(p)
+	switch {
+	case legacy.Repository == "":
+	case a.SourceRepo == "":
+		a.SourceRepo = legacy.Repository
+		a.legacySourceRepo = true
+	case a.SourceRepo != legacy.Repository:
+		return fmt.Errorf("app %q declares both `sourceRepo:` and `repository:` with different values — "+
+			"they are the same field under two names; `repository:` was renamed in v0.12.0, so keep `sourceRepo:` and delete the other",
+			a.Name)
+	default:
+		a.legacySourceRepo = true
+	}
+	return nil
+}
+
+// Deprecated reports the spec fields this file used under a name that has been
+// renamed, so the caller can print a notice once and carry on. Empty is the
+// normal answer.
+func (a App) Deprecated() []string {
+	if a.legacySourceRepo {
+		return []string{"`" + LegacySourceRepoKey + ":` was renamed `sourceRepo:` in v0.12.0 — " +
+			"it is the application's own source repo, never the repo ArgoCD watches (that is --gitops-repo). " +
+			"The old spelling still parses; Endurance writes the new one"}
+	}
+	return nil
 }
 
 // RouteList is every route this application publishes, most specific first.

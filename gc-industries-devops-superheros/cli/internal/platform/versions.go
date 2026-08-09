@@ -230,6 +230,12 @@ func Version(root string, short bool) error {
 	render.Banner(version.Current)
 	render.Section("This build")
 	render.Checks([]render.Check{buildCheck()})
+	// Said here, under the build line, because this is the screen a runbook
+	// sends somebody to and the sentence has to arrive with the thing it is
+	// about. The version above is the same in every binary cut from one release
+	// and in every working tree between two of them; the line under it is not.
+	render.Detail("this line identifies the build · the version above does not — " +
+		"it is a constant, and a phase that changes no command's shape earns no bump")
 	render.Blank()
 
 	dir, err := FindRoot(root)
@@ -238,6 +244,8 @@ func Version(root string, short bool) error {
 		render.Detail("`endurance doctor` checks this machine · the platform repo is what `endurance init` needs")
 		return nil
 	}
+
+	reportBinary(InspectBinary(dir))
 
 	render.Section("Components")
 	checks := make([]render.Check, 0, len(Components(dir)))

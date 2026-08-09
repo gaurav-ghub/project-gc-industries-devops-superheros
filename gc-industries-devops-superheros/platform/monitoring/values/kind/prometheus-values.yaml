@@ -99,3 +99,26 @@ alertmanager:
         webhook_configs:
           - url: 'http://superhero-ai-alertmanager.monitoring.svc.cluster.local:8000/alerts'
             send_resolved: true
+
+    # PodContainerNotReady's own annotation says "no more specific alert
+    # explained why" — and until this block existed, that sentence was an
+    # intention, not a mechanism: the expression contains no inhibition
+    # against the four specific rules above it, so both fired for the same
+    # pod (B4, Phase 13's live run). Two Slack messages and two OpenAI calls
+    # for one ImagePullBackOff.
+    #
+    # An inhibit_rule is Alertmanager's job, not PromQL's: keyed on the labels
+    # every rule in infra/monitoring/rules/application-alerts.yaml carries
+    # (namespace, pod), so a firing ImagePullFailing/ContainerCrashLooping/
+    # ContainerOOMKilled/PodRestartingFrequently suppresses the backstop for
+    # that exact pod and lets it through for every other one. Adding a sixth
+    # specific alert to that file means adding its name here too —
+    # cli/internal/platform/alerts_test.go reads both files and fails if they
+    # disagree, the same way TestEveryAlertCarriesTheLabelsAlertmanagerRoutesOn
+    # already does for the route matchers.
+    inhibit_rules:
+      - source_matchers:
+          - 'alertname=~"ImagePullFailing|ContainerCrashLooping|ContainerOOMKilled|PodRestartingFrequently"'
+        target_matchers:
+          - 'alertname="PodContainerNotReady"'
+        equal: ['namespace', 'pod']
