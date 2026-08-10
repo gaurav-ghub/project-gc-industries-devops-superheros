@@ -1,0 +1,30 @@
+name: portfolio
+namespace: portfolio
+owner: gc-ghub
+sourceRepo: https://github.com/gc-ghub/gaurav-cloud-native-devops-portfolio-claude.git
+
+mesh:
+  enabled: true
+
+route:
+  enabled: true
+  path: /
+  service: frontend
+
+services:
+  - name: backend
+    image: docker.io/dockergc00/portfolio-backend
+    tag: v1
+    port: 8080
+    replicas: 1
+    env:
+      - name: GITHUB_USERNAME
+        value: gc-ghub
+      - name: CREDLY_USER_ID
+        value: gaurav-chaurasia.25908149
+
+  - name: frontend
+    image: docker.io/dockergc00/portfolio-frontend
+    tag: v3
+    port: 8080
+    replicas: 1

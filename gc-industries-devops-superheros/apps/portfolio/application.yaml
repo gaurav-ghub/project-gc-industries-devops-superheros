@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: portfolio
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+      targetRevision: HEAD
+      path: gc-industries-devops-superheros/charts/app
+      helm:
+        valueFiles:
+          - $values/gc-industries-devops-superheros/apps/portfolio/values.yaml
+    - repoURL: https://github.com/gc-ghub/project-gc-industries-devops-superheros.git
+      targetRevision: HEAD
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: portfolio
+  syncPolicy:
+    # Sidecar injection is a property of the namespace, and the namespace is
+    # ArgoCD's to create — so the label that turns the mesh on belongs here
+    # rather than in a kubectl command someone has to remember to run.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

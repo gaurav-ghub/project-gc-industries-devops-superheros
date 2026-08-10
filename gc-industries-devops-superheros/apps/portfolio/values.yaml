@@ -1,0 +1,58 @@
+# Values for charts/app — rendered by Endurance
+---
+app:
+    name: portfolio
+mesh:
+    enabled: true
+route:
+    enabled: true
+    path: /
+    service: frontend
+    port: 8080
+    gateway: istio-system/endurance-gateway
+services:
+    - name: backend
+      image: docker.io/dockergc00/portfolio-backend
+      tag: v1
+      port: 8080
+      replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
+      env:
+        - name: GITHUB_USERNAME
+          value: gc-ghub
+        - name: CREDLY_USER_ID
+          value: gaurav-chaurasia.25908149
+    - name: frontend
+      image: docker.io/dockergc00/portfolio-frontend
+      tag: v3
+      port: 8080
+      replicas: 1
+      resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: 500m
+            memory: 512Mi
+      security:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        allowPrivilegeEscalation: false
+        dropCapabilities:
+            - ALL
